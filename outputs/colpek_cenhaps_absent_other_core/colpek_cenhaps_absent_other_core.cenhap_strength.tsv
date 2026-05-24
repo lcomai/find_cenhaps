@@ -1,0 +1,6 @@
+assigned_cen	selected_distinct_kmers	target_map_hits	cenhap_strength_units	cenhap_strength_blocks	block_bp	mean_distinct_kmers_per_block
+CEN1	3595	225414	73	14123	581387	15.961
+CEN2	2027	166624	71	9433	401948	17.663
+CEN3	3690	150232	120	10631	415746	14.132
+CEN4	2546	148193	84	10954	425436	13.509
+CEN5	4660	163578	171	11026	444666	14.836

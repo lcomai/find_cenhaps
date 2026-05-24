@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="470" viewBox="0 0 1320 470">
+<style>
+text{font-family:Arial,Helvetica,sans-serif;fill:#1f1f1f}
+.title{font-size:22px;font-weight:700}
+.panel-title{font-size:15px;font-weight:700}
+.axis{stroke:#333;stroke-width:1}
+.grid{stroke:#d8d8d8;stroke-width:1}
+.tick{font-size:11px;fill:#555}
+.value{font-size:11px;font-weight:700}
+</style>
+<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+<text class="title" x="660" y="34" text-anchor="middle">Cenhap Strength by Core Centromere</text>
+<text class="panel-title" x="251.0" y="61" text-anchor="middle">Non-redundant cenhap units</text>
+<line class="axis" x1="62.0" y1="359" x2="440.0" y2="359"/>
+<line class="axis" x1="62.0" y1="74" x2="62.0" y2="359"/>
+<line class="grid" x1="62.0" y1="359.0" x2="440.0" y2="359.0"/>
+<text class="tick" x="54.0" y="363.0" text-anchor="end">0</text>
+<line class="grid" x1="62.0" y1="288.2" x2="440.0" y2="288.2"/>
+<text class="tick" x="54.0" y="292.2" text-anchor="end">43</text>
+<line class="grid" x1="62.0" y1="217.3" x2="440.0" y2="217.3"/>
+<text class="tick" x="54.0" y="221.3" text-anchor="end">86</text>
+<line class="grid" x1="62.0" y1="146.5" x2="440.0" y2="146.5"/>
+<text class="tick" x="54.0" y="150.5" text-anchor="end">129</text>
+<line class="grid" x1="62.0" y1="74.0" x2="440.0" y2="74.0"/>
+<text class="tick" x="54.0" y="78.0" text-anchor="end">173</text>
+<rect x="74.0" y="255.2" width="61.2" height="103.8" fill="#2f6f73" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="104.6" y="248.2" text-anchor="middle">63</text>
+<text class="tick" x="104.6" y="378" text-anchor="middle">CEN1</text>
+<rect x="147.2" y="242.0" width="61.2" height="117.0" fill="#2f6f73" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="177.8" y="235.0" text-anchor="middle">71</text>
+<text class="tick" x="177.8" y="378" text-anchor="middle">CEN2</text>
+<rect x="220.4" y="169.5" width="61.2" height="189.5" fill="#2f6f73" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="251.0" y="162.5" text-anchor="middle">115</text>
+<text class="tick" x="251.0" y="378" text-anchor="middle">CEN3</text>
+<rect x="293.6" y="235.4" width="61.2" height="123.6" fill="#2f6f73" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="324.2" y="228.4" text-anchor="middle">75</text>
+<text class="tick" x="324.2" y="378" text-anchor="middle">CEN4</text>
+<rect x="366.8" y="74.0" width="61.2" height="285.0" fill="#2f6f73" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="397.4" y="67.0" text-anchor="middle">173</text>
+<text class="tick" x="397.4" y="378" text-anchor="middle">CEN5</text>
+<text class="tick" x="251.0" y="402" text-anchor="middle">Core centromere</text>
+<text class="panel-title" x="675.0" y="61" text-anchor="middle">Selected distinct k-mers</text>
+<line class="axis" x1="486.0" y1="359" x2="864.0" y2="359"/>
+<line class="axis" x1="486.0" y1="74" x2="486.0" y2="359"/>
+<line class="grid" x1="486.0" y1="359.0" x2="864.0" y2="359.0"/>
+<text class="tick" x="478.0" y="363.0" text-anchor="end">0</text>
+<line class="grid" x1="486.0" y1="287.8" x2="864.0" y2="287.8"/>
+<text class="tick" x="478.0" y="291.8" text-anchor="end">1,251</text>
+<line class="grid" x1="486.0" y1="216.5" x2="864.0" y2="216.5"/>
+<text class="tick" x="478.0" y="220.5" text-anchor="end">2,502</text>
+<line class="grid" x1="486.0" y1="145.2" x2="864.0" y2="145.2"/>
+<text class="tick" x="478.0" y="149.2" text-anchor="end">3,753</text>
+<line class="grid" x1="486.0" y1="74.0" x2="864.0" y2="74.0"/>
+<text class="tick" x="478.0" y="78.0" text-anchor="end">5,004</text>
+<rect x="498.0" y="136.4" width="61.2" height="222.6" fill="#9b5d2e" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="528.6" y="129.4" text-anchor="middle">3,909</text>
+<text class="tick" x="528.6" y="378" text-anchor="middle">CEN1</text>
+<rect x="571.2" y="230.1" width="61.2" height="128.9" fill="#9b5d2e" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="601.8" y="223.1" text-anchor="middle">2,264</text>
+<text class="tick" x="601.8" y="378" text-anchor="middle">CEN2</text>
+<rect x="644.4" y="133.2" width="61.2" height="225.8" fill="#9b5d2e" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="675.0" y="126.2" text-anchor="middle">3,965</text>
+<text class="tick" x="675.0" y="378" text-anchor="middle">CEN3</text>
+<rect x="717.6" y="194.0" width="61.2" height="165.0" fill="#9b5d2e" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="748.2" y="187.0" text-anchor="middle">2,897</text>
+<text class="tick" x="748.2" y="378" text-anchor="middle">CEN4</text>
+<rect x="790.8" y="74.0" width="61.2" height="285.0" fill="#9b5d2e" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="821.4" y="67.0" text-anchor="middle">5,004</text>
+<text class="tick" x="821.4" y="378" text-anchor="middle">CEN5</text>
+<text class="tick" x="675.0" y="402" text-anchor="middle">Core centromere</text>
+<text class="panel-title" x="1099.0" y="61" text-anchor="middle">Assigned core-CEN map hits</text>
+<line class="axis" x1="910.0" y1="359" x2="1288.0" y2="359"/>
+<line class="axis" x1="910.0" y1="74" x2="910.0" y2="359"/>
+<line class="grid" x1="910.0" y1="359.0" x2="1288.0" y2="359.0"/>
+<text class="tick" x="902.0" y="363.0" text-anchor="end">0</text>
+<line class="grid" x1="910.0" y1="287.8" x2="1288.0" y2="287.8"/>
+<text class="tick" x="902.0" y="291.8" text-anchor="end">66,986</text>
+<line class="grid" x1="910.0" y1="216.5" x2="1288.0" y2="216.5"/>
+<text class="tick" x="902.0" y="220.5" text-anchor="end">133,972</text>
+<line class="grid" x1="910.0" y1="145.2" x2="1288.0" y2="145.2"/>
+<text class="tick" x="902.0" y="149.2" text-anchor="end">200,958</text>
+<line class="grid" x1="910.0" y1="74.0" x2="1288.0" y2="74.0"/>
+<text class="tick" x="902.0" y="78.0" text-anchor="end">267,944</text>
+<rect x="922.0" y="74.0" width="61.2" height="285.0" fill="#5f6f95" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="952.6" y="67.0" text-anchor="middle">267,944</text>
+<text class="tick" x="952.6" y="378" text-anchor="middle">CEN1</text>
+<rect x="995.2" y="173.2" width="61.2" height="185.8" fill="#5f6f95" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="1025.8" y="166.2" text-anchor="middle">174,661</text>
+<text class="tick" x="1025.8" y="378" text-anchor="middle">CEN2</text>
+<rect x="1068.4" y="144.5" width="61.2" height="214.5" fill="#5f6f95" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="1099.0" y="137.5" text-anchor="middle">201,618</text>
+<text class="tick" x="1099.0" y="378" text-anchor="middle">CEN3</text>
+<rect x="1141.6" y="160.4" width="61.2" height="198.6" fill="#5f6f95" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="1172.2" y="153.4" text-anchor="middle">186,702</text>
+<text class="tick" x="1172.2" y="378" text-anchor="middle">CEN4</text>
+<rect x="1214.8" y="171.4" width="61.2" height="187.6" fill="#5f6f95" stroke="#222" stroke-width="0.7"/>
+<text class="value" x="1245.4" y="164.4" text-anchor="middle">176,390</text>
+<text class="tick" x="1245.4" y="378" text-anchor="middle">CEN5</text>
+<text class="tick" x="1099.0" y="402" text-anchor="middle">Core centromere</text>
+</svg>

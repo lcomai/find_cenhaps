@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="666" viewBox="0 0 1320 666">
+<style>
+text{font-family:Arial,Helvetica,sans-serif;fill:#1f1f1f}
+.title{font-size:22px;font-weight:700}
+.label{font-size:14px;font-weight:700}
+.tick{font-size:11px;fill:#555}
+.axis{stroke:#333;stroke-width:1}
+.grid{stroke:#d8d8d8;stroke-width:1}
+</style>
+<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+<text class="title" x="660" y="34" text-anchor="middle">Cenhap-Defining K-mers by Fixed Core-CEN Bin</text>
+<text class="tick" x="660" y="56" text-anchor="middle">Bar height is distinct selected k-mers per 200,000 bp bin</text>
+<text class="label" x="72" y="110" text-anchor="end">CEN1</text>
+<text class="tick" x="72" y="128" text-anchor="end">2.00 Mb</text>
+<line class="axis" x1="88" y1="140" x2="1284" y2="140"/>
+<line class="grid" x1="88" y1="80" x2="1284" y2="80"/>
+<rect x="88.0" y="109.3" width="118.6" height="30.7" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 1: 1,109 distinct selected k-mers, 21,359 map hits</title></rect>
+<text class="tick" x="147.3" y="105.3" text-anchor="middle">1,109</text>
+<rect x="207.6" y="111.9" width="118.6" height="28.1" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 2: 1,016 distinct selected k-mers, 25,299 map hits</title></rect>
+<text class="tick" x="266.9" y="107.9" text-anchor="middle">1,016</text>
+<rect x="327.2" y="110.3" width="118.6" height="29.7" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 3: 1,073 distinct selected k-mers, 18,136 map hits</title></rect>
+<text class="tick" x="386.5" y="106.3" text-anchor="middle">1,073</text>
+<rect x="446.8" y="122.0" width="118.6" height="18.0" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 4: 652 distinct selected k-mers, 16,991 map hits</title></rect>
+<text class="tick" x="506.1" y="118.0" text-anchor="middle">652</text>
+<rect x="566.4" y="113.3" width="118.6" height="26.7" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 5: 966 distinct selected k-mers, 16,986 map hits</title></rect>
+<text class="tick" x="625.7" y="109.3" text-anchor="middle">966</text>
+<rect x="686.0" y="119.9" width="118.6" height="20.1" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 6: 728 distinct selected k-mers, 16,568 map hits</title></rect>
+<text class="tick" x="745.3" y="115.9" text-anchor="middle">728</text>
+<rect x="805.6" y="119.6" width="118.6" height="20.4" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 7: 736 distinct selected k-mers, 10,862 map hits</title></rect>
+<text class="tick" x="864.9" y="115.6" text-anchor="middle">736</text>
+<rect x="925.2" y="109.1" width="118.6" height="30.9" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 8: 1,116 distinct selected k-mers, 28,094 map hits</title></rect>
+<text class="tick" x="984.5" y="105.1" text-anchor="middle">1,116</text>
+<rect x="1044.8" y="105.6" width="118.6" height="34.4" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 9: 1,242 distinct selected k-mers, 37,851 map hits</title></rect>
+<text class="tick" x="1104.1" y="101.6" text-anchor="middle">1,242</text>
+<rect x="1164.4" y="105.6" width="118.6" height="34.4" fill="#2f6f73" opacity="0.82"><title>CEN1 bin 10: 1,244 distinct selected k-mers, 33,289 map hits</title></rect>
+<text class="tick" x="1223.7" y="101.6" text-anchor="middle">1,244</text>
+<text class="tick" x="88" y="158" text-anchor="start">15,000,000</text>
+<text class="tick" x="1284" y="158" text-anchor="end">17,000,000</text>
+<text class="label" x="72" y="218" text-anchor="end">CEN2</text>
+<text class="tick" x="72" y="236" text-anchor="end">1.50 Mb</text>
+<line class="axis" x1="88" y1="248" x2="1284" y2="248"/>
+<line class="grid" x1="88" y1="188" x2="1284" y2="188"/>
+<rect x="88.0" y="225.8" width="158.5" height="22.2" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 1: 802 distinct selected k-mers, 20,663 map hits</title></rect>
+<text class="tick" x="167.2" y="221.8" text-anchor="middle">802</text>
+<rect x="247.5" y="233.3" width="158.5" height="14.7" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 2: 533 distinct selected k-mers, 20,909 map hits</title></rect>
+<text class="tick" x="326.7" y="229.3" text-anchor="middle">533</text>
+<rect x="406.9" y="228.6" width="158.5" height="19.4" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 3: 701 distinct selected k-mers, 21,355 map hits</title></rect>
+<text class="tick" x="486.2" y="224.6" text-anchor="middle">701</text>
+<rect x="566.4" y="232.8" width="158.5" height="15.2" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 4: 550 distinct selected k-mers, 29,880 map hits</title></rect>
+<text class="tick" x="645.6" y="228.8" text-anchor="middle">550</text>
+<rect x="725.9" y="228.6" width="158.5" height="19.4" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 5: 701 distinct selected k-mers, 25,079 map hits</title></rect>
+<text class="tick" x="805.1" y="224.6" text-anchor="middle">701</text>
+<rect x="885.3" y="229.8" width="158.5" height="18.2" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 6: 657 distinct selected k-mers, 19,938 map hits</title></rect>
+<text class="tick" x="964.6" y="225.8" text-anchor="middle">657</text>
+<rect x="1044.8" y="227.9" width="158.5" height="20.1" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 7: 727 distinct selected k-mers, 21,596 map hits</title></rect>
+<text class="tick" x="1124.0" y="223.9" text-anchor="middle">727</text>
+<rect x="1204.3" y="232.3" width="78.7" height="15.7" fill="#2f6f73" opacity="0.82"><title>CEN2 bin 8: 568 distinct selected k-mers, 7,204 map hits</title></rect>
+<text class="tick" x="1243.6" y="228.3" text-anchor="middle">568</text>
+<text class="tick" x="88" y="266" text-anchor="start">4,800,000</text>
+<text class="tick" x="1284" y="266" text-anchor="end">6,300,000</text>
+<text class="label" x="72" y="326" text-anchor="end">CEN3</text>
+<text class="tick" x="72" y="344" text-anchor="end">1.70 Mb</text>
+<line class="axis" x1="88" y1="356" x2="1284" y2="356"/>
+<line class="grid" x1="88" y1="296" x2="1284" y2="296"/>
+<rect x="88.0" y="326.3" width="139.7" height="29.7" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 1: 1,073 distinct selected k-mers, 14,451 map hits</title></rect>
+<text class="tick" x="157.9" y="322.3" text-anchor="middle">1,073</text>
+<rect x="228.7" y="331.8" width="139.7" height="24.2" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 2: 876 distinct selected k-mers, 19,492 map hits</title></rect>
+<text class="tick" x="298.6" y="327.8" text-anchor="middle">876</text>
+<rect x="369.4" y="298.0" width="139.7" height="58.0" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 3: 2,097 distinct selected k-mers, 24,166 map hits</title></rect>
+<text class="tick" x="439.3" y="294.0" text-anchor="middle">2,097</text>
+<rect x="510.1" y="303.8" width="139.7" height="52.2" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 4: 1,886 distinct selected k-mers, 20,665 map hits</title></rect>
+<text class="tick" x="580.0" y="299.8" text-anchor="middle">1,886</text>
+<rect x="650.8" y="315.2" width="139.7" height="40.8" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 5: 1,475 distinct selected k-mers, 20,867 map hits</title></rect>
+<text class="tick" x="720.7" y="311.2" text-anchor="middle">1,475</text>
+<rect x="791.5" y="337.2" width="139.7" height="18.8" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 6: 681 distinct selected k-mers, 12,789 map hits</title></rect>
+<text class="tick" x="861.4" y="333.2" text-anchor="middle">681</text>
+<rect x="932.2" y="340.4" width="139.7" height="15.6" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 7: 563 distinct selected k-mers, 14,048 map hits</title></rect>
+<text class="tick" x="1002.1" y="336.4" text-anchor="middle">563</text>
+<rect x="1072.9" y="339.5" width="139.7" height="16.5" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 8: 597 distinct selected k-mers, 16,104 map hits</title></rect>
+<text class="tick" x="1142.8" y="335.5" text-anchor="middle">597</text>
+<rect x="1213.6" y="347.7" width="69.4" height="8.3" fill="#2f6f73" opacity="0.82"><title>CEN3 bin 9: 301 distinct selected k-mers, 7,670 map hits</title></rect>
+<text class="tick" x="1248.3" y="343.7" text-anchor="middle">301</text>
+<text class="tick" x="88" y="374" text-anchor="start">14,000,000</text>
+<text class="tick" x="1284" y="374" text-anchor="end">15,700,000</text>
+<text class="label" x="72" y="434" text-anchor="end">CEN4</text>
+<text class="tick" x="72" y="452" text-anchor="end">1.40 Mb</text>
+<line class="axis" x1="88" y1="464" x2="1284" y2="464"/>
+<line class="grid" x1="88" y1="404" x2="1284" y2="404"/>
+<rect x="88.0" y="442.0" width="169.9" height="22.0" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 1: 794 distinct selected k-mers, 23,141 map hits</title></rect>
+<text class="tick" x="172.9" y="438.0" text-anchor="middle">794</text>
+<rect x="258.9" y="438.5" width="169.9" height="25.5" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 2: 921 distinct selected k-mers, 21,130 map hits</title></rect>
+<text class="tick" x="343.8" y="434.5" text-anchor="middle">921</text>
+<rect x="429.7" y="439.6" width="169.9" height="24.4" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 3: 883 distinct selected k-mers, 17,703 map hits</title></rect>
+<text class="tick" x="514.6" y="435.6" text-anchor="middle">883</text>
+<rect x="600.6" y="443.1" width="169.9" height="20.9" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 4: 756 distinct selected k-mers, 21,147 map hits</title></rect>
+<text class="tick" x="685.5" y="439.1" text-anchor="middle">756</text>
+<rect x="771.4" y="443.0" width="169.9" height="21.0" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 5: 761 distinct selected k-mers, 19,791 map hits</title></rect>
+<text class="tick" x="856.4" y="439.0" text-anchor="middle">761</text>
+<rect x="942.3" y="434.9" width="169.9" height="29.1" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 6: 1,053 distinct selected k-mers, 22,342 map hits</title></rect>
+<text class="tick" x="1027.2" y="430.9" text-anchor="middle">1,053</text>
+<rect x="1113.1" y="436.9" width="169.9" height="27.1" fill="#2f6f73" opacity="0.82"><title>CEN4 bin 7: 981 distinct selected k-mers, 22,962 map hits</title></rect>
+<text class="tick" x="1198.1" y="432.9" text-anchor="middle">981</text>
+<text class="tick" x="88" y="482" text-anchor="start">4,800,000</text>
+<text class="tick" x="1284" y="482" text-anchor="end">6,200,000</text>
+<text class="label" x="72" y="542" text-anchor="end">CEN5</text>
+<text class="tick" x="72" y="560" text-anchor="end">1.70 Mb</text>
+<line class="axis" x1="88" y1="572" x2="1284" y2="572"/>
+<line class="grid" x1="88" y1="512" x2="1284" y2="512"/>
+<rect x="88.0" y="528.9" width="139.7" height="43.1" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 1: 1,559 distinct selected k-mers, 18,505 map hits</title></rect>
+<text class="tick" x="157.9" y="524.9" text-anchor="middle">1,559</text>
+<rect x="228.7" y="524.3" width="139.7" height="47.7" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 2: 1,723 distinct selected k-mers, 15,189 map hits</title></rect>
+<text class="tick" x="298.6" y="520.3" text-anchor="middle">1,723</text>
+<rect x="369.4" y="525.0" width="139.7" height="47.0" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 3: 1,700 distinct selected k-mers, 17,622 map hits</title></rect>
+<text class="tick" x="439.3" y="521.0" text-anchor="middle">1,700</text>
+<rect x="510.1" y="534.3" width="139.7" height="37.7" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 4: 1,363 distinct selected k-mers, 15,995 map hits</title></rect>
+<text class="tick" x="580.0" y="530.3" text-anchor="middle">1,363</text>
+<rect x="650.8" y="538.0" width="139.7" height="34.0" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 5: 1,228 distinct selected k-mers, 19,637 map hits</title></rect>
+<text class="tick" x="720.7" y="534.0" text-anchor="middle">1,228</text>
+<rect x="791.5" y="537.5" width="139.7" height="34.5" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 6: 1,248 distinct selected k-mers, 19,077 map hits</title></rect>
+<text class="tick" x="861.4" y="533.5" text-anchor="middle">1,248</text>
+<rect x="932.2" y="522.0" width="139.7" height="50.0" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 7: 1,806 distinct selected k-mers, 21,066 map hits</title></rect>
+<text class="tick" x="1002.1" y="518.0" text-anchor="middle">1,806</text>
+<rect x="1072.9" y="532.2" width="139.7" height="39.8" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 8: 1,438 distinct selected k-mers, 24,927 map hits</title></rect>
+<text class="tick" x="1142.8" y="528.2" text-anchor="middle">1,438</text>
+<rect x="1213.6" y="534.7" width="69.4" height="37.3" fill="#2f6f73" opacity="0.82"><title>CEN5 bin 9: 1,347 distinct selected k-mers, 11,570 map hits</title></rect>
+<text class="tick" x="1248.3" y="530.7" text-anchor="middle">1,347</text>
+<text class="tick" x="88" y="590" text-anchor="start">12,700,000</text>
+<text class="tick" x="1284" y="590" text-anchor="end">14,400,000</text>
+</svg>
