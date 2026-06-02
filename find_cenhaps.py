@@ -22,6 +22,7 @@ import argparse
 import csv
 import gzip
 import html
+import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -191,6 +192,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=200_000,
         help="Fixed-bin size for the simple regional cenhap k-mer count plot.",
+    )
+    p.add_argument(
+        "--min-shared-cens",
+        type=int,
+        default=2,
+        help="Minimum number of core CENs for a k-mer to enter shared-kmer diagnostics.",
+    )
+    p.add_argument(
+        "--min-shared-hits-per-cen",
+        type=int,
+        default=1,
+        help="Minimum hits in a CEN for that CEN to count as present in shared-kmer diagnostics.",
     )
     p.add_argument(
         "--write-window-plot",
@@ -697,6 +710,238 @@ def write_summary(
             )
 
 
+def idf_weight(total_cens: int, present_cens: int) -> float:
+    return math.log((total_cens + 1) / (present_cens + 1)) + 1.0
+
+
+def build_shared_kmer_rows(
+    stats: dict[str, KmerStats],
+    labels: list[str],
+    selected: dict[str, SelectedKmer],
+    min_shared_cens: int,
+    min_hits_per_cen: int,
+) -> list[dict[str, object]]:
+    if min_shared_cens <= 0:
+        raise SystemExit("--min-shared-cens must be a positive integer.")
+    if min_hits_per_cen <= 0:
+        raise SystemExit("--min-shared-hits-per-cen must be a positive integer.")
+
+    total_cens = len(labels)
+    rows = []
+    for kmer, record in stats.items():
+        counts = {label: int(record.core_hits.get(label, 0)) for label in labels}
+        present = [label for label in labels if counts[label] >= min_hits_per_cen]
+        if len(present) < min_shared_cens:
+            continue
+        present_counts = [counts[label] for label in present]
+        selected_call = selected.get(kmer)
+        rows.append(
+            {
+                "kmer": kmer,
+                "shared_class": "all_core_cens" if len(present) == total_cens else "subset_core_cens",
+                "present_cens_count": len(present),
+                "present_cens_fraction": len(present) / total_cens if total_cens else 0.0,
+                "present_cens": ",".join(present),
+                "total_core_hits": sum(counts.values()),
+                "min_present_cen_hits": min(present_counts) if present_counts else 0,
+                "max_present_cen_hits": max(present_counts) if present_counts else 0,
+                "mean_present_cen_hits": (
+                    sum(present_counts) / len(present_counts) if present_counts else 0.0
+                ),
+                "idf_weight": idf_weight(total_cens, len(present)),
+                "selected_cenhap_defining": int(selected_call is not None),
+                "selected_assigned_cen": selected_call.assigned_cen if selected_call else "",
+                **{f"{label}_hits": counts[label] for label in labels},
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -int(row["present_cens_count"]),
+            str(row["present_cens"]),
+            -int(row["total_core_hits"]),
+            str(row["kmer"]),
+        )
+    )
+    return rows
+
+
+def build_shared_kmer_set_rows(shared_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in shared_rows:
+        grouped[str(row["present_cens"])].append(row)
+
+    rows = []
+    for cen_set, members in grouped.items():
+        total_hits = sum(int(row["total_core_hits"]) for row in members)
+        selected_members = sum(int(row["selected_cenhap_defining"]) for row in members)
+        idf_values = [float(row["idf_weight"]) for row in members]
+        rows.append(
+            {
+                "present_cens": cen_set,
+                "present_cens_count": int(members[0]["present_cens_count"]) if members else 0,
+                "shared_class": str(members[0]["shared_class"]) if members else "",
+                "kmers": len(members),
+                "selected_cenhap_defining_kmers": selected_members,
+                "fraction_selected_cenhap_defining": (
+                    selected_members / len(members) if members else 0.0
+                ),
+                "total_core_hits": total_hits,
+                "mean_total_core_hits_per_kmer": total_hits / len(members) if members else 0.0,
+                "mean_idf_weight": sum(idf_values) / len(idf_values) if idf_values else 0.0,
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -int(row["present_cens_count"]),
+            -int(row["kmers"]),
+            str(row["present_cens"]),
+        )
+    )
+    return rows
+
+
+def build_idf_relatedness_rows(
+    stats: dict[str, KmerStats],
+    labels: list[str],
+) -> tuple[list[dict[str, object]], list[list[object]]]:
+    weights = {}
+    for kmer, record in stats.items():
+        present = sum(1 for label in labels if int(record.core_hits.get(label, 0)) > 0)
+        if present:
+            weights[kmer] = idf_weight(len(labels), present)
+
+    pair_rows = []
+    matrix = [["assigned_cen", *labels]]
+    for left in labels:
+        matrix_row = [left]
+        for right in labels:
+            numerator = 0.0
+            denominator = 0.0
+            shared_kmers = 0
+            left_kmers = 0
+            right_kmers = 0
+            for kmer, record in stats.items():
+                left_count = int(record.core_hits.get(left, 0))
+                right_count = int(record.core_hits.get(right, 0))
+                if left_count:
+                    left_kmers += 1
+                if right_count:
+                    right_kmers += 1
+                if left_count and right_count:
+                    shared_kmers += 1
+                if left_count or right_count:
+                    weight = weights.get(kmer, 1.0)
+                    numerator += weight * min(left_count, right_count)
+                    denominator += weight * max(left_count, right_count)
+            score = numerator / denominator if denominator else 0.0
+            matrix_row.append(score)
+            if left < right:
+                pair_rows.append(
+                    {
+                        "cen_a": left,
+                        "cen_b": right,
+                        "idf_weighted_jaccard": score,
+                        "shared_kmers": shared_kmers,
+                        "cen_a_kmers": left_kmers,
+                        "cen_b_kmers": right_kmers,
+                        "binary_jaccard": (
+                            shared_kmers / (left_kmers + right_kmers - shared_kmers)
+                            if left_kmers + right_kmers - shared_kmers
+                            else 0.0
+                        ),
+                    }
+                )
+        matrix.append(matrix_row)
+    return pair_rows, matrix
+
+
+def write_shared_kmer_rows(
+    path: Path,
+    rows: list[dict[str, object]],
+    labels: list[str],
+) -> None:
+    fieldnames = [
+        "kmer",
+        "shared_class",
+        "present_cens_count",
+        "present_cens_fraction",
+        "present_cens",
+        "total_core_hits",
+        "min_present_cen_hits",
+        "max_present_cen_hits",
+        "mean_present_cen_hits",
+        "idf_weight",
+        "selected_cenhap_defining",
+        "selected_assigned_cen",
+        *[f"{label}_hits" for label in labels],
+    ]
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            formatted["present_cens_fraction"] = f"{float(row['present_cens_fraction']):.6f}"
+            formatted["mean_present_cen_hits"] = f"{float(row['mean_present_cen_hits']):.6f}"
+            formatted["idf_weight"] = f"{float(row['idf_weight']):.6f}"
+            writer.writerow(formatted)
+
+
+def write_shared_kmer_set_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "present_cens",
+        "present_cens_count",
+        "shared_class",
+        "kmers",
+        "selected_cenhap_defining_kmers",
+        "fraction_selected_cenhap_defining",
+        "total_core_hits",
+        "mean_total_core_hits_per_kmer",
+        "mean_idf_weight",
+    ]
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            for key in [
+                "fraction_selected_cenhap_defining",
+                "mean_total_core_hits_per_kmer",
+                "mean_idf_weight",
+            ]:
+                formatted[key] = f"{float(formatted[key]):.6f}"
+            writer.writerow(formatted)
+
+
+def write_relatedness_pairs(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "cen_a",
+        "cen_b",
+        "idf_weighted_jaccard",
+        "shared_kmers",
+        "cen_a_kmers",
+        "cen_b_kmers",
+        "binary_jaccard",
+    ]
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            formatted["idf_weighted_jaccard"] = f"{float(row['idf_weighted_jaccard']):.6f}"
+            formatted["binary_jaccard"] = f"{float(row['binary_jaccard']):.6f}"
+            writer.writerow(formatted)
+
+
+def write_relatedness_matrix(path: Path, matrix: list[list[object]]) -> None:
+    with open(path, "w", newline="") as out:
+        writer = csv.writer(out, delimiter="\t")
+        for row_idx, row in enumerate(matrix):
+            if row_idx == 0:
+                writer.writerow(row)
+            else:
+                writer.writerow([row[0], *[f"{float(value):.6f}" for value in row[1:]]])
+
+
 def build_blocks(
     stats: dict[str, KmerStats],
     selected: dict[str, SelectedKmer],
@@ -858,6 +1103,249 @@ def write_units(path: Path, units_by_cen: dict[str, list[dict[str, object]]]) ->
         for label in sorted(units_by_cen):
             for row in units_by_cen[label]:
                 writer.writerow({key: row[key] for key in fieldnames})
+
+
+def quantile(values: list[int], q: float) -> float:
+    if not values:
+        return 0.0
+    ranked = sorted(values)
+    if len(ranked) == 1:
+        return float(ranked[0])
+    pos = (len(ranked) - 1) * q
+    lower = int(pos)
+    upper = min(lower + 1, len(ranked) - 1)
+    fraction = pos - lower
+    return ranked[lower] * (1 - fraction) + ranked[upper] * fraction
+
+
+def unit_size_bucket(size: int) -> str:
+    if size <= 1:
+        return "1"
+    if size == 2:
+        return "2"
+    if size <= 5:
+        return "3-5"
+    if size <= 10:
+        return "6-10"
+    if size <= 20:
+        return "11-20"
+    if size <= 50:
+        return "21-50"
+    if size <= 100:
+        return "51-100"
+    if size <= 500:
+        return "101-500"
+    return "501+"
+
+
+def unit_size_bucket_order() -> list[str]:
+    return ["1", "2", "3-5", "6-10", "11-20", "21-50", "51-100", "101-500", "501+"]
+
+
+def build_unit_size_summary(
+    labels: list[str],
+    units_by_cen: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    rows = []
+    for label in labels:
+        units = units_by_cen.get(label, [])
+        sizes = [int(unit["distinct_kmers"]) for unit in units]
+        hits = [int(unit["target_map_hits"]) for unit in units]
+        blocks = [int(unit["physical_blocks"]) for unit in units]
+        total_size = sum(sizes)
+        largest = max(sizes) if sizes else 0
+        rows.append(
+            {
+                "assigned_cen": label,
+                "units": len(units),
+                "singleton_units": sum(1 for size in sizes if size == 1),
+                "fraction_singleton_units": (
+                    sum(1 for size in sizes if size == 1) / len(units) if units else 0.0
+                ),
+                "total_distinct_kmers_in_units": total_size,
+                "min_distinct_kmers_per_unit": min(sizes) if sizes else 0,
+                "q25_distinct_kmers_per_unit": quantile(sizes, 0.25),
+                "median_distinct_kmers_per_unit": quantile(sizes, 0.50),
+                "q75_distinct_kmers_per_unit": quantile(sizes, 0.75),
+                "max_distinct_kmers_per_unit": largest,
+                "mean_distinct_kmers_per_unit": total_size / len(units) if units else 0.0,
+                "largest_unit_fraction_of_kmers": largest / total_size if total_size else 0.0,
+                "mean_target_map_hits_per_unit": sum(hits) / len(units) if units else 0.0,
+                "mean_physical_blocks_per_unit": sum(blocks) / len(units) if units else 0.0,
+            }
+        )
+    return rows
+
+
+def build_unit_size_distribution(
+    labels: list[str],
+    units_by_cen: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    bucket_order = unit_size_bucket_order()
+    rows = []
+    for label in labels:
+        units = units_by_cen.get(label, [])
+        counts = Counter(unit_size_bucket(int(unit["distinct_kmers"])) for unit in units)
+        total_units = len(units)
+        for bucket in bucket_order:
+            count = counts.get(bucket, 0)
+            rows.append(
+                {
+                    "assigned_cen": label,
+                    "size_bucket_distinct_kmers": bucket,
+                    "units": count,
+                    "fraction_units": count / total_units if total_units else 0.0,
+                }
+            )
+    return rows
+
+
+def write_unit_size_summary(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "assigned_cen",
+        "units",
+        "singleton_units",
+        "fraction_singleton_units",
+        "total_distinct_kmers_in_units",
+        "min_distinct_kmers_per_unit",
+        "q25_distinct_kmers_per_unit",
+        "median_distinct_kmers_per_unit",
+        "q75_distinct_kmers_per_unit",
+        "max_distinct_kmers_per_unit",
+        "mean_distinct_kmers_per_unit",
+        "largest_unit_fraction_of_kmers",
+        "mean_target_map_hits_per_unit",
+        "mean_physical_blocks_per_unit",
+    ]
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            for key in [
+                "fraction_singleton_units",
+                "q25_distinct_kmers_per_unit",
+                "median_distinct_kmers_per_unit",
+                "q75_distinct_kmers_per_unit",
+                "mean_distinct_kmers_per_unit",
+                "largest_unit_fraction_of_kmers",
+                "mean_target_map_hits_per_unit",
+                "mean_physical_blocks_per_unit",
+            ]:
+                formatted[key] = f"{float(formatted[key]):.6f}"
+            writer.writerow(formatted)
+
+
+def write_unit_size_distribution(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "assigned_cen",
+        "size_bucket_distinct_kmers",
+        "units",
+        "fraction_units",
+    ]
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            formatted["fraction_units"] = f"{float(formatted['fraction_units']):.6f}"
+            writer.writerow(formatted)
+
+
+def write_unit_size_plot(path: Path, rows: list[dict[str, object]]) -> str:
+    labels = sorted({str(row["assigned_cen"]) for row in rows})
+    buckets = unit_size_bucket_order()
+    by_key = {
+        (str(row["assigned_cen"]), str(row["size_bucket_distinct_kmers"])): int(row["units"])
+        for row in rows
+    }
+    width = 1320
+    height = 530
+    margin_left = 78
+    margin_right = 36
+    margin_top = 74
+    margin_bottom = 72
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+    max_count = max((int(row["units"]) for row in rows), default=1)
+    colors = ["#2f6f73", "#9b5d2e", "#5f6f95", "#8a6d3b", "#4f7f4f"]
+
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">',
+        "<style>",
+        "text{font-family:Arial,Helvetica,sans-serif;fill:#1f1f1f}",
+        ".title{font-size:22px;font-weight:700}",
+        ".tick{font-size:11px;fill:#555}",
+        ".legend{font-size:12px}",
+        ".axis{stroke:#333;stroke-width:1}",
+        ".grid{stroke:#d8d8d8;stroke-width:1}",
+        "</style>",
+        '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
+        '<text class="title" x="660" y="34" text-anchor="middle">'
+        "CU Size Distribution</text>",
+        '<text class="tick" x="660" y="56" text-anchor="middle">'
+        "Size is distinct selected k-mers per CU</text>",
+    ]
+
+    baseline = margin_top + plot_height
+    for idx in range(5):
+        tick = round(max_count * idx / 4)
+        y = baseline - (tick / max_count) * plot_height if max_count else baseline
+        svg.append(
+            f'<line class="grid" x1="{margin_left}" y1="{y:.1f}" '
+            f'x2="{margin_left + plot_width}" y2="{y:.1f}"/>'
+        )
+        svg.append(
+            f'<text class="tick" x="{margin_left - 8}" y="{y + 4:.1f}" '
+            f'text-anchor="end">{tick:,}</text>'
+        )
+
+    svg.append(
+        f'<line class="axis" x1="{margin_left}" y1="{baseline}" '
+        f'x2="{margin_left + plot_width}" y2="{baseline}"/>'
+    )
+    svg.append(
+        f'<line class="axis" x1="{margin_left}" y1="{margin_top}" '
+        f'x2="{margin_left}" y2="{baseline}"/>'
+    )
+
+    bucket_gap = 22
+    group_width = (plot_width - bucket_gap * (len(buckets) - 1)) / len(buckets)
+    bar_gap = 3
+    bar_width = (group_width - bar_gap * (len(labels) - 1)) / max(1, len(labels))
+    for bucket_idx, bucket in enumerate(buckets):
+        group_x = margin_left + bucket_idx * (group_width + bucket_gap)
+        for label_idx, label in enumerate(labels):
+            count = by_key.get((label, bucket), 0)
+            bar_h = (count / max_count) * plot_height if max_count else 0
+            x = group_x + label_idx * (bar_width + bar_gap)
+            y = baseline - bar_h
+            color = colors[label_idx % len(colors)]
+            svg.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" '
+                f'height="{bar_h:.1f}" fill="{color}" opacity="0.86">'
+                f'<title>{html.escape(label)} {html.escape(bucket)}: {count:,} CU</title>'
+                "</rect>"
+            )
+        svg.append(
+            f'<text class="tick" x="{group_x + group_width / 2:.1f}" y="{baseline + 20}" '
+            f'text-anchor="middle">{html.escape(bucket)}</text>'
+        )
+
+    legend_x = margin_left
+    legend_y = height - 20
+    for label_idx, label in enumerate(labels):
+        x = legend_x + label_idx * 96
+        color = colors[label_idx % len(colors)]
+        svg.append(f'<rect x="{x}" y="{legend_y - 12}" width="12" height="12" fill="{color}"/>')
+        svg.append(
+            f'<text class="legend" x="{x + 18}" y="{legend_y - 2}">{html.escape(label)}</text>'
+        )
+
+    svg.append("</svg>")
+    path.write_text("\n".join(svg) + "\n")
+    return ""
 
 
 def write_cen_strength(
@@ -1606,6 +2094,8 @@ def write_stats(
         out.write(f"window_size\t{args.window_size}\n")
         out.write(f"window_step\t{args.window_step}\n")
         out.write(f"bin_size\t{args.bin_size}\n")
+        out.write(f"min_shared_cens\t{args.min_shared_cens}\n")
+        out.write(f"min_shared_hits_per_cen\t{args.min_shared_hits_per_cen}\n")
         out.write(f"map_rows\t{map_rows}\n")
         out.write(f"core_centromere_map_rows\t{core_rows}\n")
         out.write(f"distinct_kmers\t{kmer_count}\n")
@@ -1664,6 +2154,15 @@ def main() -> None:
 
     stats, map_rows, core_rows = read_map_counts(args.map_tsv, interval_index)
     selected, fail_counts = select_kmers(stats, labels, args)
+    shared_kmer_rows = build_shared_kmer_rows(
+        stats,
+        labels,
+        selected,
+        args.min_shared_cens,
+        args.min_shared_hits_per_cen,
+    )
+    shared_kmer_set_rows = build_shared_kmer_set_rows(shared_kmer_rows)
+    relatedness_pair_rows, relatedness_matrix = build_idf_relatedness_rows(stats, labels)
     blocks_by_cen = build_blocks(
         stats,
         selected,
@@ -1672,6 +2171,8 @@ def main() -> None:
         args.merge_gap,
     )
     units_by_cen = build_units(labels, selected, blocks_by_cen)
+    unit_size_summary_rows = build_unit_size_summary(labels, units_by_cen)
+    unit_size_distribution_rows = build_unit_size_distribution(labels, units_by_cen)
     bin_rows = build_bin_rows(
         intervals,
         stats,
@@ -1699,6 +2200,13 @@ def main() -> None:
     summary_path = Path(str(prefix) + ".kmer_summary.tsv")
     blocks_path = Path(str(prefix) + ".cenhap_blocks.tsv")
     units_path = Path(str(prefix) + ".cenhap_units.tsv")
+    unit_size_summary_path = Path(str(prefix) + ".cenhap_unit_size_summary.tsv")
+    unit_size_distribution_path = Path(str(prefix) + ".cenhap_unit_size_distribution.tsv")
+    unit_size_plot_path = Path(str(prefix) + ".cenhap_unit_size_distribution.svg")
+    shared_kmers_path = Path(str(prefix) + ".cen_shared_kmers.tsv")
+    shared_sets_path = Path(str(prefix) + ".cen_shared_kmer_sets.tsv")
+    relatedness_pairs_path = Path(str(prefix) + ".cen_relatedness.idf_weighted_pairs.tsv")
+    relatedness_matrix_path = Path(str(prefix) + ".cen_relatedness.idf_weighted_matrix.tsv")
     strength_path = Path(str(prefix) + ".cenhap_strength.tsv")
     plot_path = Path(str(prefix) + ".cenhap_strength_histogram.svg")
     bin_path = Path(str(prefix) + ".cenhap_bins.tsv")
@@ -1714,10 +2222,21 @@ def main() -> None:
     write_summary(summary_path, stats, selected, labels, args)
     write_blocks(blocks_path, blocks_by_cen)
     write_units(units_path, units_by_cen)
+    write_unit_size_summary(unit_size_summary_path, unit_size_summary_rows)
+    write_unit_size_distribution(unit_size_distribution_path, unit_size_distribution_rows)
+    write_shared_kmer_rows(shared_kmers_path, shared_kmer_rows, labels)
+    write_shared_kmer_set_rows(shared_sets_path, shared_kmer_set_rows)
+    write_relatedness_pairs(relatedness_pairs_path, relatedness_pair_rows)
+    write_relatedness_matrix(relatedness_matrix_path, relatedness_matrix)
     write_cen_strength(strength_path, labels, selected, blocks_by_cen, units_by_cen)
     plot_status = "plot_skipped\t--skip-plot" if args.skip_plot else write_strength_plot(
         plot_path, strength_rows
     )
+    unit_size_plot_status = "" if args.skip_plot else write_unit_size_plot(
+        unit_size_plot_path,
+        unit_size_distribution_rows,
+    )
+    plot_status = plot_status or unit_size_plot_status
     write_bin_rows(bin_path, bin_rows)
     bin_plot_status = "" if args.skip_plot else write_bin_plot(
         bin_plot_path,
@@ -1759,9 +2278,16 @@ def main() -> None:
     print(f"Wrote {summary_path}")
     print(f"Wrote {blocks_path}")
     print(f"Wrote {units_path}")
+    print(f"Wrote {unit_size_summary_path}")
+    print(f"Wrote {unit_size_distribution_path}")
+    print(f"Wrote {shared_kmers_path}")
+    print(f"Wrote {shared_sets_path}")
+    print(f"Wrote {relatedness_pairs_path}")
+    print(f"Wrote {relatedness_matrix_path}")
     print(f"Wrote {strength_path}")
     if not plot_status:
         print(f"Wrote {plot_path}")
+        print(f"Wrote {unit_size_plot_path}")
         print(f"Wrote {bin_plot_path}")
         if args.write_window_plot:
             print(f"Wrote {window_plot_path}")

@@ -119,6 +119,8 @@ Default selection thresholds:
 - `--bin-size 200000`
 - `--window-size 100000`
 - `--window-step 25000`
+- `--min-shared-cens 2`
+- `--min-shared-hits-per-cen 1`
 
 Main outputs:
 
@@ -128,10 +130,22 @@ Main outputs:
 - `*.assigned_core_map.tsv`: selected map rows inside the assigned core CEN.
 - `*.cenhap_blocks.tsv`: overlap-collapsed physical blocks.
 - `*.cenhap_units.tsv`: non-redundant k-mer groups connected by overlap.
+- `*.cenhap_unit_size_summary.tsv`: per-centromere CU size summaries, where
+  size is primarily distinct selected k-mers per CU.
+- `*.cenhap_unit_size_distribution.tsv`: bucketed CU size distribution.
+- `*.cenhap_unit_size_distribution.svg`: visual CU size distribution.
 - `*.cenhap_strength.tsv`: per-centromere raw selected k-mer counts and
   collapsed unit/block counts.
 - `*.cenhap_strength_histogram.svg`: visual comparison of the main strength
   metrics across all core centromeres in the coordinate file.
+- `*.cen_shared_kmers.tsv`: CRISPR-facing diagnostic table of k-mers present
+  in at least `--min-shared-cens` core CENs. It includes all-CEN common k-mers
+  and k-mers shared by exact CEN subsets.
+- `*.cen_shared_kmer_sets.tsv`: summary counts for each exact shared CEN set.
+- `*.cen_relatedness.idf_weighted_pairs.tsv`: pairwise CEN relatedness using
+  IDF-weighted Jaccard on core-CEN k-mer counts.
+- `*.cen_relatedness.idf_weighted_matrix.tsv`: matrix form of the same
+  relatedness scores.
 - `*.cenhap_bins.tsv`: fixed-bin counts of cenhap-defining k-mers along each
   core CEN. The default bin size is 200 kb.
 - `*.cenhap_bin_counts.svg`: simple fixed-bin plot of distinct selected
@@ -148,6 +162,21 @@ The most useful first-pass cenhap strength column is `cenhap_strength_units` in
 collapsing overlapping k-mers. The `selected_distinct_kmers` column is
 intentionally reported too, because it is useful for judging how much raw
 sequence evidence was collapsed.
+
+For CU size, start with `*.cenhap_unit_size_summary.tsv` and
+`*.cenhap_unit_size_distribution.svg`. The primary CU size is
+`distinct_kmers`, the number of selected centromere-biased k-mers grouped into
+that CU. The unit table also reports `target_map_hits` and `physical_blocks`,
+which are useful secondary size/support measures.
+
+For shared-kmer diagnostics, start with `*.cen_shared_kmers.tsv`. A k-mer is
+counted as present in a CEN when it has at least
+`--min-shared-hits-per-cen` hits in that CEN. The `present_cens` column gives
+the exact CEN set, and `shared_class` distinguishes `all_core_cens` from
+`subset_core_cens`. The `idf_weight` column keeps common k-mers in the
+relatedness calculation but gives less influence to k-mers found in many CENs.
+This is useful for CRISPR design because the table explicitly separates
+candidate all-CEN targets from subset-specific targets.
 
 For regional interpretation, start with `*.cenhap_bin_counts.svg` and
 `*.cenhap_bins.tsv`. These use non-overlapping fixed bins and simply count how
