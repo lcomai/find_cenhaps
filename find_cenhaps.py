@@ -1005,6 +1005,7 @@ def build_blocks(
 def write_blocks(path: Path, blocks_by_cen: dict[str, list[dict[str, object]]]) -> None:
     fieldnames = [
         "assigned_cen",
+        "unit_ids",
         "chr",
         "block_start",
         "block_end",
@@ -1018,7 +1019,9 @@ def write_blocks(path: Path, blocks_by_cen: dict[str, list[dict[str, object]]]) 
         writer.writeheader()
         for label in sorted(blocks_by_cen):
             for block in blocks_by_cen[label]:
-                writer.writerow({key: block[key] for key in fieldnames})
+                row = {key: block[key] for key in fieldnames if key in block}
+                row["unit_ids"] = ",".join(sorted(block.get("_unit_ids", set())))
+                writer.writerow(row)
 
 
 def build_units(
@@ -1049,16 +1052,24 @@ def build_units(
         unit_rows = []
         for unit_kmers in grouped.values():
             unit_set = set(unit_kmers)
-            physical_blocks = sum(
-                1
+            unit_blocks = [
+                block
                 for block in blocks_by_cen.get(label, [])
                 if unit_set.intersection(block.get("_kmers", set()))
-            )
+            ]
+            physical_blocks = len(unit_blocks)
             target_hits = sum(selected[kmer].target_hits for kmer in unit_kmers)
+            span_start = min((int(block["block_start"]) for block in unit_blocks), default="")
+            span_end = max((int(block["block_end"]) for block in unit_blocks), default="")
+            span_bp = span_end - span_start + 1 if span_start != "" and span_end != "" else ""
             unit_rows.append(
                 {
                     "assigned_cen": label,
                     "unit_id": "",
+                    "chr": unit_blocks[0]["chr"] if unit_blocks else "",
+                    "unit_span_start": span_start,
+                    "unit_span_end": span_end,
+                    "unit_span_bp": span_bp,
                     "distinct_kmers": len(unit_kmers),
                     "target_map_hits": target_hits,
                     "physical_blocks": physical_blocks,
@@ -1092,6 +1103,10 @@ def write_units(path: Path, units_by_cen: dict[str, list[dict[str, object]]]) ->
     fieldnames = [
         "assigned_cen",
         "unit_id",
+        "chr",
+        "unit_span_start",
+        "unit_span_end",
+        "unit_span_bp",
         "distinct_kmers",
         "target_map_hits",
         "physical_blocks",
@@ -1103,6 +1118,35 @@ def write_units(path: Path, units_by_cen: dict[str, list[dict[str, object]]]) ->
         for label in sorted(units_by_cen):
             for row in units_by_cen[label]:
                 writer.writerow({key: row[key] for key in fieldnames})
+
+
+def write_units_bed(path: Path, units_by_cen: dict[str, list[dict[str, object]]]) -> None:
+    max_kmers = max(
+        (int(row["distinct_kmers"]) for rows in units_by_cen.values() for row in rows),
+        default=1,
+    )
+    with open(path, "w", newline="") as out:
+        writer = csv.writer(out, delimiter="\t", lineterminator="\n")
+        for label in sorted(units_by_cen):
+            for row in units_by_cen[label]:
+                if row["unit_span_start"] == "" or row["unit_span_end"] == "":
+                    continue
+                start0 = int(row["unit_span_start"]) - 1
+                end = int(row["unit_span_end"])
+                score = round((int(row["distinct_kmers"]) / max_kmers) * 1000)
+                writer.writerow(
+                    [
+                        row["chr"],
+                        start0,
+                        end,
+                        row["unit_id"],
+                        score,
+                        ".",
+                        int(row["unit_span_start"]) - 1,
+                        end,
+                        "47,111,115",
+                    ]
+                )
 
 
 def quantile(values: list[int], q: float) -> float:
@@ -2200,6 +2244,7 @@ def main() -> None:
     summary_path = Path(str(prefix) + ".kmer_summary.tsv")
     blocks_path = Path(str(prefix) + ".cenhap_blocks.tsv")
     units_path = Path(str(prefix) + ".cenhap_units.tsv")
+    units_bed_path = Path(str(prefix) + ".cenhap_units.bed")
     unit_size_summary_path = Path(str(prefix) + ".cenhap_unit_size_summary.tsv")
     unit_size_distribution_path = Path(str(prefix) + ".cenhap_unit_size_distribution.tsv")
     unit_size_plot_path = Path(str(prefix) + ".cenhap_unit_size_distribution.svg")
@@ -2222,6 +2267,7 @@ def main() -> None:
     write_summary(summary_path, stats, selected, labels, args)
     write_blocks(blocks_path, blocks_by_cen)
     write_units(units_path, units_by_cen)
+    write_units_bed(units_bed_path, units_by_cen)
     write_unit_size_summary(unit_size_summary_path, unit_size_summary_rows)
     write_unit_size_distribution(unit_size_distribution_path, unit_size_distribution_rows)
     write_shared_kmer_rows(shared_kmers_path, shared_kmer_rows, labels)
@@ -2278,6 +2324,7 @@ def main() -> None:
     print(f"Wrote {summary_path}")
     print(f"Wrote {blocks_path}")
     print(f"Wrote {units_path}")
+    print(f"Wrote {units_bed_path}")
     print(f"Wrote {unit_size_summary_path}")
     print(f"Wrote {unit_size_distribution_path}")
     print(f"Wrote {shared_kmers_path}")

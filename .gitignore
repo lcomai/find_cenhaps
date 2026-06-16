@@ -1,0 +1,15 @@
+
+# generated outputs
+outputs/
+
+# notes
+Definitions/
+
+# Python junk
+__pycache__/
+*.pyc
+.DS_Store
+
+# local environments
+.venv/
+env/

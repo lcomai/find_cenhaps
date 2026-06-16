@@ -130,8 +130,12 @@ Main outputs:
   column per core centromere.
 - `*.selected_kmers.txt`: one selected k-mer per line.
 - `*.assigned_core_map.tsv`: selected map rows inside the assigned core CEN.
-- `*.cenhap_blocks.tsv`: overlap-collapsed physical blocks.
-- `*.cenhap_units.tsv`: non-redundant k-mer groups connected by overlap.
+- `*.cenhap_blocks.tsv`: overlap-collapsed physical blocks with map
+  coordinates and `unit_ids`.
+- `*.cenhap_units.tsv`: non-redundant k-mer groups connected by overlap,
+  including each CU's coordinate span.
+- `*.cenhap_units.bed`: BED9 file of CU spans for genome browsers. Coordinates
+  are standard 0-based, half-open BED intervals.
 - `*.cenhap_unit_size_summary.tsv`: per-centromere CU size summaries, where
   size is primarily distinct selected k-mers per CU.
 - `*.cenhap_unit_size_distribution.tsv`: bucketed CU size distribution.
