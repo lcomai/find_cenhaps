@@ -29,6 +29,13 @@ The core idea is:
 When available, provide a k-mer map with `--map-tsv`. This is the most direct
 mode and preserves the original physical mapping evidence.
 
+Interpret mapped-input results in light of how the k-mers were chosen upstream.
+For example, a table preselected for association with a single centromere is
+not an unbiased genome-wide k-mer set, even if a permissive threshold leaves
+many shared k-mers. Shared-kmer and relatedness outputs from `--map-tsv` are
+therefore conditional on the supplied k-mer universe and can underrepresent
+k-mers that were filtered out before mapping.
+
 The k-mer map must be a tab-separated file with at least these columns:
 
 ```text
@@ -87,6 +94,13 @@ label. If a genome has multiple separate core-centromere intervals on the same
 sequence, those intervals should be given distinct labels or the script should
 be extended to avoid label collisions.
 
+By default, region-table coordinates still use only rows whose `region` is
+`cen`, `centromere`, `core`, or `core_centromere`. Use `--include-pericen` to
+also include `pericen_left` and `pericen_right` rows. The two periCEN rows for
+one chromosome are treated as one logical label such as `PERICEN4`, but their
+physical intervals remain separate; the script does not create artificial k-mers
+or bins across the intervening CEN.
+
 ## Arabidopsis Col-PEK Examples
 
 With an existing physical k-mer map:
@@ -124,6 +138,24 @@ Default selection thresholds:
 - `--min-shared-cens 2`
 - `--min-shared-hits-per-cen 1`
 
+FASTA-generated maps use chromosome-coordinate sampling. With `--kmer-step 10`,
+only k-mers starting at every tenth coordinate are considered, so rare shared
+k-mers can be missed if their copies are out of phase with the sampling grid.
+This can underestimate shared-kmer relatedness, especially for low-copy or
+non-periodic sequence. Use `--kmer-step 10` for fast exploratory runs, but use
+`--kmer-step 1` for final shared-kmer and relatedness comparisons when runtime
+is acceptable.
+
+Optional periCEN comparison:
+
+```bash
+./find_cenhaps.py \
+  --map-tsv map.tsv \
+  --coords cen_pericen_coords.tsv \
+  --include-pericen \
+  --prefix outputs/cen_pericen/cen_pericen
+```
+
 Main outputs:
 
 - `*.kmer_summary.tsv`: selected and near-threshold k-mers with one count
@@ -142,8 +174,19 @@ Main outputs:
 - `*.cenhap_unit_size_distribution.svg`: visual CU size distribution.
 - `*.cenhap_strength.tsv`: per-centromere raw selected k-mer counts and
   collapsed unit/block counts.
+- `*.region_strength.tsv`: the same strength metrics with `region_class`,
+  physical length, and per-Mb normalized columns. This is the preferred table
+  for comparing CEN and periCEN regions of different lengths.
+- `*.paired_cen_pericen_strength.tsv`: paired CEN-vs-`PERICEN` summary with
+  periCEN/CEN ratios for chromosomes that have both labels.
+- `*.cen_pericen_independence.tsv`: same-chromosome CEN-periCEN relatedness
+  compared with cross-chromosome CEN/periCEN relatedness.
 - `*.cenhap_strength_histogram.svg`: visual comparison of the main strength
-  metrics across all core centromeres in the coordinate file.
+  metrics across all analysis regions in the coordinate file.
+- `*.paired_cen_pericen_strength.svg`: paired bar chart of CEN and periCEN
+  `cenhap_strength_units_per_mb` for each chromosome.
+- `*.cen_pericen_strength_scatter.svg`: CEN-vs-periCEN scatterplot with an
+  equality diagonal; points above the diagonal have stronger periCEN signal.
 - `*.cen_shared_kmers.tsv`: CRISPR-facing diagnostic table of k-mers present
   in at least `--min-shared-cens` core CENs. It includes all-CEN common k-mers
   and k-mers shared by exact CEN subsets.
@@ -179,10 +222,15 @@ For shared-kmer diagnostics, start with `*.cen_shared_kmers.tsv`. A k-mer is
 counted as present in a CEN when it has at least
 `--min-shared-hits-per-cen` hits in that CEN. The `present_cens` column gives
 the exact CEN set, and `shared_class` distinguishes `all_core_cens` from
-`subset_core_cens`. The `idf_weight` column keeps common k-mers in the
-relatedness calculation but gives less influence to k-mers found in many CENs.
-This is useful for CRISPR design because the table explicitly separates
-candidate all-CEN targets from subset-specific targets.
+`subset_core_cens`. In periCEN-inclusive runs, `present_core_cens_count`,
+`present_all_core_cens`, `present_core_cens`, `present_pericens_count`,
+`present_all_pericens`, and `present_pericens` provide separate CEN and periCEN
+presence summaries so all-CEN and all-periCEN targets can be filtered directly.
+The matching set-summary file, `*.cen_shared_kmer_sets.tsv`, carries the same
+split columns for each exact shared-region set. The `idf_weight` column keeps
+common k-mers in the relatedness calculation but gives less influence to k-mers
+found in many CENs. This is useful for CRISPR design because the table
+explicitly separates candidate all-CEN targets from subset-specific targets.
 
 For regional interpretation, start with `*.cenhap_bin_counts.svg` and
 `*.cenhap_bins.tsv`. These use non-overlapping fixed bins and simply count how
@@ -190,3 +238,12 @@ many selected cenhap-defining k-mers occur in each interval. The running-window
 dispersion table is still useful for quantifying broad versus localized signal:
 broad signal across many windows suggests a dispersed cenhap; a high maximum
 window with a high Gini/top-10% fraction points to localized divergence islands.
+
+For CEN-vs-periCEN interpretation, start with
+`*.paired_cen_pericen_strength.svg` and
+`*.cen_pericen_strength_scatter.svg`. The paired bar chart answers which member
+of each chromosome pair has more normalized cenhap strength. The scatterplot
+summarizes the same result: points above the diagonal favor periCEN strength,
+and points below it favor CEN strength. Use `*.cen_pericen_independence.tsv`
+and the IDF-weighted relatedness matrix to distinguish same-chromosome coupling
+from independent local evolution.

@@ -1,0 +1,7 @@
+chr	region	start	end
+1	pericen_left	50	90
+1	centromere	100	140
+1	pericen_right	150	190
+2	pericen_left	50	90
+2	centromere	100	140
+2	pericen_right	150	190

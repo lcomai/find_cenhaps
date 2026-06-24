@@ -31,6 +31,9 @@ from typing import Iterable
 
 
 CORE_PREFIX = "CEN"
+PERICEN_PREFIX = "PERICEN"
+CORE_REGION_NAMES = {"cen", "centromere", "core", "core_centromere"}
+PERICEN_REGION_NAMES = {"pericen_left", "pericen_right"}
 REVCOMP_TABLE = str.maketrans("ACGT", "TGCA")
 VALID_DNA_RE = re.compile("^[ACGT]+$")
 
@@ -41,6 +44,8 @@ class CoreInterval:
     chrom: str
     start: int
     end: int
+    region_class: str = "CEN"
+    region_name: str = "centromere"
 
 
 @dataclass
@@ -98,6 +103,14 @@ def parse_args() -> argparse.Namespace:
         help="TSV from map_kmers_ac.2.1.py. If omitted, --fasta is used to generate a core-CEN map.",
     )
     p.add_argument("--coords", required=True, help="Centromere coordinate TSV")
+    p.add_argument(
+        "--include-pericen",
+        action="store_true",
+        help=(
+            "In chr/region/start/end coordinate files, include pericen_left and "
+            "pericen_right rows as one logical PERICENn region per chromosome."
+        ),
+    )
     p.add_argument(
         "--fasta",
         default=None,
@@ -236,6 +249,62 @@ def normalize_chrom(value: str) -> str:
     return f"Chr{suffix}"
 
 
+def chrom_sort_key(chrom: str) -> tuple[int, int | str]:
+    suffix = normalize_chrom(chrom)[3:]
+    if suffix.isdigit():
+        return (0, int(suffix))
+    return (1, suffix)
+
+
+def label_sort_key(label: str) -> tuple[int, int | str, int, str]:
+    if label.startswith(PERICEN_PREFIX):
+        suffix = label[len(PERICEN_PREFIX) :]
+        region_order = 1
+    elif label.startswith(CORE_PREFIX):
+        suffix = label[len(CORE_PREFIX) :]
+        region_order = 0
+    else:
+        suffix = label
+        region_order = 2
+    chrom_key = (0, int(suffix)) if suffix.isdigit() else (1, suffix)
+    return (chrom_key[0], chrom_key[1], region_order, label)
+
+
+def unique_labels(intervals: list[CoreInterval]) -> list[str]:
+    return sorted({interval.label for interval in intervals}, key=label_sort_key)
+
+
+def intervals_by_label(intervals: list[CoreInterval]) -> dict[str, list[CoreInterval]]:
+    grouped: dict[str, list[CoreInterval]] = defaultdict(list)
+    for interval in intervals:
+        grouped[interval.label].append(interval)
+    for rows in grouped.values():
+        rows.sort(key=lambda item: (chrom_sort_key(item.chrom), item.start, item.end))
+    return dict(grouped)
+
+
+def label_chrom(label: str, grouped: dict[str, list[CoreInterval]]) -> str:
+    intervals = grouped.get(label, [])
+    return intervals[0].chrom if intervals else ""
+
+
+def label_extent(label: str, grouped: dict[str, list[CoreInterval]]) -> tuple[int | str, int | str]:
+    intervals = grouped.get(label, [])
+    if not intervals:
+        return "", ""
+    return min(interval.start for interval in intervals), max(interval.end for interval in intervals)
+
+
+def label_length(label: str, grouped: dict[str, list[CoreInterval]]) -> int:
+    return sum(interval.end - interval.start + 1 for interval in grouped.get(label, []))
+
+
+def label_region_class(label: str) -> str:
+    if label.startswith(PERICEN_PREFIX):
+        return "PERICEN"
+    return "CEN"
+
+
 def revcomp(seq: str) -> str:
     return seq.translate(REVCOMP_TABLE)[::-1]
 
@@ -284,7 +353,7 @@ def read_fasta_sequences(path: str | Path) -> dict[str, str]:
     return sequences
 
 
-def read_core_intervals(path: str) -> list[CoreInterval]:
+def read_core_intervals(path: str, include_pericen: bool = False) -> list[CoreInterval]:
     intervals: list[CoreInterval] = []
     with open(path, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
@@ -302,21 +371,31 @@ def read_core_intervals(path: str) -> list[CoreInterval]:
                         chrom=chrom,
                         start=clean_int(row[fields["left"]]),
                         end=clean_int(row[fields["right"]]),
+                        region_class="CEN",
+                        region_name="centromere",
                     )
                 )
         elif {"chr", "region", "start", "end"}.issubset(fields):
             for row in reader:
                 region = row[fields["region"]].strip().lower()
-                if region not in {"cen", "centromere", "core", "core_centromere"}:
-                    continue
                 chrom = normalize_chrom(row[fields["chr"]])
                 suffix = chrom[3:]
+                if region in CORE_REGION_NAMES:
+                    label = f"{CORE_PREFIX}{suffix}"
+                    region_class = "CEN"
+                elif include_pericen and region in PERICEN_REGION_NAMES:
+                    label = f"{PERICEN_PREFIX}{suffix}"
+                    region_class = "PERICEN"
+                else:
+                    continue
                 intervals.append(
                     CoreInterval(
-                        label=f"{CORE_PREFIX}{suffix}",
+                        label=label,
                         chrom=chrom,
                         start=clean_int(row[fields["start"]]),
                         end=clean_int(row[fields["end"]]),
+                        region_class=region_class,
+                        region_name=region,
                     )
                 )
         else:
@@ -325,8 +404,10 @@ def read_core_intervals(path: str) -> list[CoreInterval]:
             )
 
     if not intervals:
+        if include_pericen:
+            raise SystemExit("No accepted CEN or periCEN intervals were found.")
         raise SystemExit("No core centromere intervals were found.")
-    intervals.sort(key=lambda item: (item.chrom, item.start, item.end))
+    intervals.sort(key=lambda item: (chrom_sort_key(item.chrom), item.start, item.end, item.label))
     return intervals
 
 
@@ -714,6 +795,41 @@ def idf_weight(total_cens: int, present_cens: int) -> float:
     return math.log((total_cens + 1) / (present_cens + 1)) + 1.0
 
 
+def split_core_pericen_labels(labels: list[str]) -> tuple[list[str], list[str]]:
+    core_labels = [label for label in labels if label.startswith(CORE_PREFIX)]
+    pericen_labels = [label for label in labels if label.startswith(PERICEN_PREFIX)]
+    return core_labels, pericen_labels
+
+
+def classify_core_pericen_presence(
+    present_core: list[str],
+    present_pericen: list[str],
+    total_core: int,
+    total_pericen: int,
+) -> str:
+    has_all_core = bool(total_core) and len(present_core) == total_core
+    has_all_pericen = bool(total_pericen) and len(present_pericen) == total_pericen
+    has_core = bool(present_core)
+    has_pericen = bool(present_pericen)
+    if has_all_core and has_all_pericen:
+        return "all_core_cens_and_all_pericens"
+    if has_all_core and not has_pericen:
+        return "all_core_cens_only"
+    if has_all_pericen and not has_core:
+        return "all_pericens_only"
+    if has_all_core:
+        return "all_core_cens_plus_pericen_subset"
+    if has_all_pericen:
+        return "all_pericens_plus_core_cen_subset"
+    if has_core and has_pericen:
+        return "mixed_core_cen_pericen_subset"
+    if has_core:
+        return "core_cen_subset"
+    if has_pericen:
+        return "pericen_subset"
+    return "none"
+
+
 def build_shared_kmer_rows(
     stats: dict[str, KmerStats],
     labels: list[str],
@@ -727,22 +843,55 @@ def build_shared_kmer_rows(
         raise SystemExit("--min-shared-hits-per-cen must be a positive integer.")
 
     total_cens = len(labels)
+    all_shared_class = (
+        "all_analysis_regions" if any(label.startswith(PERICEN_PREFIX) for label in labels) else "all_core_cens"
+    )
+    subset_shared_class = (
+        "subset_analysis_regions"
+        if any(label.startswith(PERICEN_PREFIX) for label in labels)
+        else "subset_core_cens"
+    )
+    core_labels, pericen_labels = split_core_pericen_labels(labels)
     rows = []
     for kmer, record in stats.items():
         counts = {label: int(record.core_hits.get(label, 0)) for label in labels}
         present = [label for label in labels if counts[label] >= min_hits_per_cen]
         if len(present) < min_shared_cens:
             continue
+        present_core = [label for label in core_labels if counts[label] >= min_hits_per_cen]
+        present_pericen = [label for label in pericen_labels if counts[label] >= min_hits_per_cen]
         present_counts = [counts[label] for label in present]
         selected_call = selected.get(kmer)
         rows.append(
             {
                 "kmer": kmer,
-                "shared_class": "all_core_cens" if len(present) == total_cens else "subset_core_cens",
+                "shared_class": all_shared_class if len(present) == total_cens else subset_shared_class,
                 "present_cens_count": len(present),
                 "present_cens_fraction": len(present) / total_cens if total_cens else 0.0,
                 "present_cens": ",".join(present),
+                "present_region_class": classify_core_pericen_presence(
+                    present_core,
+                    present_pericen,
+                    len(core_labels),
+                    len(pericen_labels),
+                ),
+                "present_core_cens_count": len(present_core),
+                "present_core_cens_fraction": (
+                    len(present_core) / len(core_labels) if core_labels else 0.0
+                ),
+                "present_all_core_cens": int(bool(core_labels) and len(present_core) == len(core_labels)),
+                "present_core_cens": ",".join(present_core),
+                "present_pericens_count": len(present_pericen),
+                "present_pericens_fraction": (
+                    len(present_pericen) / len(pericen_labels) if pericen_labels else 0.0
+                ),
+                "present_all_pericens": int(
+                    bool(pericen_labels) and len(present_pericen) == len(pericen_labels)
+                ),
+                "present_pericens": ",".join(present_pericen),
                 "total_core_hits": sum(counts.values()),
+                "total_core_cen_hits": sum(counts[label] for label in core_labels),
+                "total_pericen_hits": sum(counts[label] for label in pericen_labels),
                 "min_present_cen_hits": min(present_counts) if present_counts else 0,
                 "max_present_cen_hits": max(present_counts) if present_counts else 0,
                 "mean_present_cen_hits": (
@@ -779,6 +928,23 @@ def build_shared_kmer_set_rows(shared_rows: list[dict[str, object]]) -> list[dic
             {
                 "present_cens": cen_set,
                 "present_cens_count": int(members[0]["present_cens_count"]) if members else 0,
+                "present_region_class": str(members[0]["present_region_class"]) if members else "",
+                "present_core_cens_count": (
+                    int(members[0]["present_core_cens_count"]) if members else 0
+                ),
+                "present_core_cens_fraction": (
+                    float(members[0]["present_core_cens_fraction"]) if members else 0.0
+                ),
+                "present_all_core_cens": int(members[0]["present_all_core_cens"]) if members else 0,
+                "present_core_cens": str(members[0]["present_core_cens"]) if members else "",
+                "present_pericens_count": (
+                    int(members[0]["present_pericens_count"]) if members else 0
+                ),
+                "present_pericens_fraction": (
+                    float(members[0]["present_pericens_fraction"]) if members else 0.0
+                ),
+                "present_all_pericens": int(members[0]["present_all_pericens"]) if members else 0,
+                "present_pericens": str(members[0]["present_pericens"]) if members else "",
                 "shared_class": str(members[0]["shared_class"]) if members else "",
                 "kmers": len(members),
                 "selected_cenhap_defining_kmers": selected_members,
@@ -786,6 +952,8 @@ def build_shared_kmer_set_rows(shared_rows: list[dict[str, object]]) -> list[dic
                     selected_members / len(members) if members else 0.0
                 ),
                 "total_core_hits": total_hits,
+                "total_core_cen_hits": sum(int(row["total_core_cen_hits"]) for row in members),
+                "total_pericen_hits": sum(int(row["total_pericen_hits"]) for row in members),
                 "mean_total_core_hits_per_kmer": total_hits / len(members) if members else 0.0,
                 "mean_idf_weight": sum(idf_values) / len(idf_values) if idf_values else 0.0,
             }
@@ -866,7 +1034,18 @@ def write_shared_kmer_rows(
         "present_cens_count",
         "present_cens_fraction",
         "present_cens",
+        "present_region_class",
+        "present_core_cens_count",
+        "present_core_cens_fraction",
+        "present_all_core_cens",
+        "present_core_cens",
+        "present_pericens_count",
+        "present_pericens_fraction",
+        "present_all_pericens",
+        "present_pericens",
         "total_core_hits",
+        "total_core_cen_hits",
+        "total_pericen_hits",
         "min_present_cen_hits",
         "max_present_cen_hits",
         "mean_present_cen_hits",
@@ -881,6 +1060,12 @@ def write_shared_kmer_rows(
         for row in rows:
             formatted = row.copy()
             formatted["present_cens_fraction"] = f"{float(row['present_cens_fraction']):.6f}"
+            formatted["present_core_cens_fraction"] = (
+                f"{float(row['present_core_cens_fraction']):.6f}"
+            )
+            formatted["present_pericens_fraction"] = (
+                f"{float(row['present_pericens_fraction']):.6f}"
+            )
             formatted["mean_present_cen_hits"] = f"{float(row['mean_present_cen_hits']):.6f}"
             formatted["idf_weight"] = f"{float(row['idf_weight']):.6f}"
             writer.writerow(formatted)
@@ -890,11 +1075,22 @@ def write_shared_kmer_set_rows(path: Path, rows: list[dict[str, object]]) -> Non
     fieldnames = [
         "present_cens",
         "present_cens_count",
+        "present_region_class",
+        "present_core_cens_count",
+        "present_core_cens_fraction",
+        "present_all_core_cens",
+        "present_core_cens",
+        "present_pericens_count",
+        "present_pericens_fraction",
+        "present_all_pericens",
+        "present_pericens",
         "shared_class",
         "kmers",
         "selected_cenhap_defining_kmers",
         "fraction_selected_cenhap_defining",
         "total_core_hits",
+        "total_core_cen_hits",
+        "total_pericen_hits",
         "mean_total_core_hits_per_kmer",
         "mean_idf_weight",
     ]
@@ -904,6 +1100,8 @@ def write_shared_kmer_set_rows(path: Path, rows: list[dict[str, object]]) -> Non
         for row in rows:
             formatted = row.copy()
             for key in [
+                "present_core_cens_fraction",
+                "present_pericens_fraction",
                 "fraction_selected_cenhap_defining",
                 "mean_total_core_hits_per_kmer",
                 "mean_idf_weight",
@@ -945,7 +1143,7 @@ def write_relatedness_matrix(path: Path, matrix: list[list[object]]) -> None:
 def build_blocks(
     stats: dict[str, KmerStats],
     selected: dict[str, SelectedKmer],
-    interval_by_label: dict[str, CoreInterval],
+    interval_groups: dict[str, list[CoreInterval]],
     kmer_size: int,
     merge_gap: int,
 ) -> dict[str, list[dict[str, object]]]:
@@ -969,7 +1167,7 @@ def build_blocks(
             blocks.append(
                 {
                     "assigned_cen": label,
-                    "chr": interval_by_label[label].chrom,
+                    "chr": label_chrom(label, interval_groups),
                     "block_start": current_start,
                     "block_end": current_end,
                     "block_length_bp": current_end - current_start + 1,
@@ -1466,8 +1664,291 @@ def collect_strength_rows(
     return rows
 
 
+def build_region_strength_rows(
+    strength_rows: list[dict[str, object]],
+    interval_groups: dict[str, list[CoreInterval]],
+) -> list[dict[str, object]]:
+    rows = []
+    for row in strength_rows:
+        label = str(row["assigned_cen"])
+        start, end = label_extent(label, interval_groups)
+        length_bp = label_length(label, interval_groups)
+        mb = length_bp / 1_000_000 if length_bp else 0.0
+        selected_count = int(row["selected_distinct_kmers"])
+        target_hits = int(row["target_map_hits"])
+        units = int(row["cenhap_strength_units"])
+        blocks = int(row["cenhap_strength_blocks"])
+        block_bp = int(row["block_bp"])
+        rows.append(
+            {
+                "assigned_cen": label,
+                "region_class": label_region_class(label),
+                "chr": label_chrom(label, interval_groups),
+                "region_start": start,
+                "region_end": end,
+                "region_length_bp": length_bp,
+                "selected_distinct_kmers": selected_count,
+                "selected_distinct_kmers_per_mb": selected_count / mb if mb else 0.0,
+                "target_map_hits": target_hits,
+                "target_map_hits_per_mb": target_hits / mb if mb else 0.0,
+                "cenhap_strength_units": units,
+                "cenhap_strength_units_per_mb": units / mb if mb else 0.0,
+                "cenhap_strength_blocks": blocks,
+                "cenhap_strength_blocks_per_mb": blocks / mb if mb else 0.0,
+                "block_bp": block_bp,
+                "block_bp_fraction": block_bp / length_bp if length_bp else 0.0,
+                "mean_distinct_kmers_per_block": float(row["mean_distinct_kmers_per_block"]),
+            }
+        )
+    return rows
+
+
+def write_region_strength(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "assigned_cen",
+        "region_class",
+        "chr",
+        "region_start",
+        "region_end",
+        "region_length_bp",
+        "selected_distinct_kmers",
+        "selected_distinct_kmers_per_mb",
+        "target_map_hits",
+        "target_map_hits_per_mb",
+        "cenhap_strength_units",
+        "cenhap_strength_units_per_mb",
+        "cenhap_strength_blocks",
+        "cenhap_strength_blocks_per_mb",
+        "block_bp",
+        "block_bp_fraction",
+        "mean_distinct_kmers_per_block",
+    ]
+    float_fields = {
+        "selected_distinct_kmers_per_mb",
+        "target_map_hits_per_mb",
+        "cenhap_strength_units_per_mb",
+        "cenhap_strength_blocks_per_mb",
+        "block_bp_fraction",
+        "mean_distinct_kmers_per_block",
+    }
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            for key in float_fields:
+                formatted[key] = f"{float(formatted[key]):.6f}"
+            writer.writerow(formatted)
+
+
+def label_suffix(label: str) -> str:
+    if label.startswith(PERICEN_PREFIX):
+        return label[len(PERICEN_PREFIX) :]
+    if label.startswith(CORE_PREFIX):
+        return label[len(CORE_PREFIX) :]
+    return label
+
+
+def safe_ratio(numerator: float, denominator: float) -> float:
+    if denominator:
+        return numerator / denominator
+    return math.inf if numerator else 0.0
+
+
+def build_paired_cen_pericen_rows(
+    region_strength_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    by_label = {str(row["assigned_cen"]): row for row in region_strength_rows}
+    suffixes = sorted(
+        {
+            label_suffix(label)
+            for label in by_label
+            if label.startswith(CORE_PREFIX) or label.startswith(PERICEN_PREFIX)
+        },
+        key=lambda suffix: (0, int(suffix)) if suffix.isdigit() else (1, suffix),
+    )
+    rows = []
+    for suffix in suffixes:
+        cen_label = f"{CORE_PREFIX}{suffix}"
+        pericen_label = f"{PERICEN_PREFIX}{suffix}"
+        if cen_label not in by_label or pericen_label not in by_label:
+            continue
+        cen = by_label[cen_label]
+        pericen = by_label[pericen_label]
+        cen_units = float(cen["cenhap_strength_units_per_mb"])
+        pericen_units = float(pericen["cenhap_strength_units_per_mb"])
+        cen_selected = float(cen["selected_distinct_kmers_per_mb"])
+        pericen_selected = float(pericen["selected_distinct_kmers_per_mb"])
+        rows.append(
+            {
+                "chr": str(cen["chr"]),
+                "cen_region": cen_label,
+                "pericen_region": pericen_label,
+                "cen_region_length_bp": int(cen["region_length_bp"]),
+                "pericen_region_length_bp": int(pericen["region_length_bp"]),
+                "cen_cenhap_strength_units_per_mb": cen_units,
+                "pericen_cenhap_strength_units_per_mb": pericen_units,
+                "pericen_to_cen_units_per_mb_ratio": safe_ratio(pericen_units, cen_units),
+                "cen_selected_distinct_kmers_per_mb": cen_selected,
+                "pericen_selected_distinct_kmers_per_mb": pericen_selected,
+                "pericen_to_cen_selected_kmers_per_mb_ratio": safe_ratio(
+                    pericen_selected, cen_selected
+                ),
+                "stronger_region_by_units_per_mb": (
+                    pericen_label if pericen_units > cen_units else cen_label if cen_units > pericen_units else "tie"
+                ),
+            }
+        )
+    return rows
+
+
+def write_paired_cen_pericen_strength(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "chr",
+        "cen_region",
+        "pericen_region",
+        "cen_region_length_bp",
+        "pericen_region_length_bp",
+        "cen_cenhap_strength_units_per_mb",
+        "pericen_cenhap_strength_units_per_mb",
+        "pericen_to_cen_units_per_mb_ratio",
+        "cen_selected_distinct_kmers_per_mb",
+        "pericen_selected_distinct_kmers_per_mb",
+        "pericen_to_cen_selected_kmers_per_mb_ratio",
+        "stronger_region_by_units_per_mb",
+    ]
+    float_fields = {
+        "cen_cenhap_strength_units_per_mb",
+        "pericen_cenhap_strength_units_per_mb",
+        "pericen_to_cen_units_per_mb_ratio",
+        "cen_selected_distinct_kmers_per_mb",
+        "pericen_selected_distinct_kmers_per_mb",
+        "pericen_to_cen_selected_kmers_per_mb_ratio",
+    }
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            for key in float_fields:
+                formatted[key] = f"{float(formatted[key]):.6f}"
+            writer.writerow(formatted)
+
+
+def relatedness_lookup(
+    relatedness_pair_rows: list[dict[str, object]],
+) -> dict[tuple[str, str], dict[str, object]]:
+    lookup = {}
+    for row in relatedness_pair_rows:
+        left = str(row["cen_a"])
+        right = str(row["cen_b"])
+        lookup[tuple(sorted((left, right)))] = row
+    return lookup
+
+
+def relatedness_score(
+    lookup: dict[tuple[str, str], dict[str, object]], left: str, right: str
+) -> float:
+    if left == right:
+        return 1.0
+    row = lookup.get(tuple(sorted((left, right))))
+    return float(row["idf_weighted_jaccard"]) if row else 0.0
+
+
+def mean_or_zero(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def build_cen_pericen_independence_rows(
+    labels: list[str],
+    relatedness_pair_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    lookup = relatedness_lookup(relatedness_pair_rows)
+    cen_labels = [label for label in labels if label.startswith(CORE_PREFIX)]
+    pericen_labels = [label for label in labels if label.startswith(PERICEN_PREFIX)]
+    rows = []
+    for cen_label in cen_labels:
+        suffix = label_suffix(cen_label)
+        pericen_label = f"{PERICEN_PREFIX}{suffix}"
+        if pericen_label not in pericen_labels:
+            continue
+        same = relatedness_score(lookup, cen_label, pericen_label)
+        cen_to_other_pericens = [
+            relatedness_score(lookup, cen_label, label)
+            for label in pericen_labels
+            if label != pericen_label
+        ]
+        pericen_to_other_cens = [
+            relatedness_score(lookup, pericen_label, label)
+            for label in cen_labels
+            if label != cen_label
+        ]
+        pericen_to_other_pericens = [
+            relatedness_score(lookup, pericen_label, label)
+            for label in pericen_labels
+            if label != pericen_label
+        ]
+        cen_to_other_cens = [
+            relatedness_score(lookup, cen_label, label) for label in cen_labels if label != cen_label
+        ]
+        mean_cen_other_pericen = mean_or_zero(cen_to_other_pericens)
+        mean_pericen_other_cen = mean_or_zero(pericen_to_other_cens)
+        rows.append(
+            {
+                "chr": f"Chr{suffix}",
+                "cen_region": cen_label,
+                "pericen_region": pericen_label,
+                "same_chrom_cen_pericen_relatedness": same,
+                "mean_cen_to_other_pericens_relatedness": mean_cen_other_pericen,
+                "same_chrom_vs_cen_to_other_pericens_ratio": safe_ratio(
+                    same, mean_cen_other_pericen
+                ),
+                "mean_pericen_to_other_cens_relatedness": mean_pericen_other_cen,
+                "same_chrom_vs_pericen_to_other_cens_ratio": safe_ratio(
+                    same, mean_pericen_other_cen
+                ),
+                "mean_pericen_to_other_pericens_relatedness": mean_or_zero(
+                    pericen_to_other_pericens
+                ),
+                "mean_cen_to_other_cens_relatedness": mean_or_zero(cen_to_other_cens),
+            }
+        )
+    return rows
+
+
+def write_cen_pericen_independence(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "chr",
+        "cen_region",
+        "pericen_region",
+        "same_chrom_cen_pericen_relatedness",
+        "mean_cen_to_other_pericens_relatedness",
+        "same_chrom_vs_cen_to_other_pericens_ratio",
+        "mean_pericen_to_other_cens_relatedness",
+        "same_chrom_vs_pericen_to_other_cens_ratio",
+        "mean_pericen_to_other_pericens_relatedness",
+        "mean_cen_to_other_cens_relatedness",
+    ]
+    float_fields = set(fieldnames[3:])
+    with open(path, "w", newline="") as out:
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            formatted = row.copy()
+            for key in float_fields:
+                formatted[key] = f"{float(formatted[key]):.6f}"
+            writer.writerow(formatted)
+
+
 def write_strength_plot(path: Path, strength_rows: list[dict[str, object]]) -> str:
     labels = [str(row["assigned_cen"]) for row in strength_rows]
+    includes_pericen = any(label.startswith(PERICEN_PREFIX) for label in labels)
+    label_count = len(labels)
+    rotate_x_labels = label_count >= 8
+    label_angle = -45 if rotate_x_labels else 0
+    label_anchor = "end" if rotate_x_labels else "middle"
+    label_y_offset = 24 if rotate_x_labels else 19
+    axis_title_y_offset = 82 if rotate_x_labels else 43
     metrics = [
         ("cenhap_strength_units", "Non-redundant cenhap units"),
         ("selected_distinct_kmers", "Selected distinct k-mers"),
@@ -1475,7 +1956,7 @@ def write_strength_plot(path: Path, strength_rows: list[dict[str, object]]) -> s
     ]
     colors = ["#2f6f73", "#9b5d2e", "#5f6f95"]
     width = 1320
-    height = 470
+    height = 520 if rotate_x_labels else 470
     margin_left = 62
     margin_top = 74
     panel_gap = 46
@@ -1497,7 +1978,7 @@ def write_strength_plot(path: Path, strength_rows: list[dict[str, object]]) -> s
         "</style>",
         '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
         '<text class="title" x="660" y="34" text-anchor="middle">'
-        "Cenhap Strength by Core Centromere</text>",
+        f'{"Cenhap Strength by Analysis Region" if includes_pericen else "Cenhap Strength by Core Centromere"}</text>',
     ]
 
     for metric_idx, ((metric, title), color) in enumerate(zip(metrics, colors)):
@@ -1537,23 +2018,231 @@ def write_strength_plot(path: Path, strength_rows: list[dict[str, object]]) -> s
             bar_x = panel_x + bar_gap + idx * (bar_width + bar_gap)
             bar_height = (value / top) * panel_height if top else 0
             bar_y = baseline - bar_height
+            label_x = bar_x + bar_width / 2
             svg.append(
                 f'<rect x="{bar_x:.1f}" y="{bar_y:.1f}" width="{bar_width:.1f}" '
                 f'height="{bar_height:.1f}" fill="{color}" stroke="#222" stroke-width="0.7"/>'
             )
             svg.append(
-                f'<text class="value" x="{bar_x + bar_width / 2:.1f}" y="{bar_y - 7:.1f}" '
+                f'<text class="value" x="{label_x:.1f}" y="{bar_y - 7:.1f}" '
                 f'text-anchor="middle">{value:,}</text>'
             )
+            transform = (
+                f' transform="rotate({label_angle} {label_x:.1f} {baseline + label_y_offset:.1f})"'
+                if rotate_x_labels
+                else ""
+            )
             svg.append(
-                f'<text class="tick" x="{bar_x + bar_width / 2:.1f}" y="{baseline + 19}" '
-                f'text-anchor="middle">{html.escape(label)}</text>'
+                f'<text class="tick" x="{label_x:.1f}" y="{baseline + label_y_offset}" '
+                f'text-anchor="{label_anchor}"{transform}>{html.escape(label)}</text>'
             )
         svg.append(
-            f'<text class="tick" x="{panel_x + panel_width / 2:.1f}" y="{baseline + 43}" '
-            'text-anchor="middle">Core centromere</text>'
+            f'<text class="tick" x="{panel_x + panel_width / 2:.1f}" y="{baseline + axis_title_y_offset}" '
+            f'text-anchor="middle">{"Analysis region" if includes_pericen else "Core centromere"}</text>'
         )
 
+    svg.append("</svg>")
+    path.write_text("\n".join(svg) + "\n")
+    return ""
+
+
+def format_ratio(value: float) -> str:
+    if math.isinf(value):
+        return "inf"
+    return f"{value:.2f}x"
+
+
+def write_paired_strength_plot(path: Path, rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return ""
+    width = 1120
+    row_height = 54
+    margin_left = 126
+    margin_right = 178
+    margin_top = 78
+    margin_bottom = 52
+    plot_width = width - margin_left - margin_right
+    height = margin_top + row_height * len(rows) + margin_bottom
+    max_value = max(
+        max(
+            float(row["cen_cenhap_strength_units_per_mb"]),
+            float(row["pericen_cenhap_strength_units_per_mb"]),
+        )
+        for row in rows
+    )
+    top = max_value if max_value else 1.0
+    cen_color = "#2f6f73"
+    pericen_color = "#b97833"
+
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">',
+        "<style>",
+        "text{font-family:Arial,Helvetica,sans-serif;fill:#1f1f1f}",
+        ".title{font-size:22px;font-weight:700}",
+        ".tick{font-size:11px;fill:#555}",
+        ".label{font-size:13px;font-weight:700}",
+        ".axis{stroke:#333;stroke-width:1}",
+        ".grid{stroke:#dddddd;stroke-width:1}",
+        "</style>",
+        '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
+        '<text class="title" x="560" y="34" text-anchor="middle">'
+        "CEN vs periCEN Cenhap Strength</text>",
+        '<text class="tick" x="560" y="56" text-anchor="middle">'
+        "Non-redundant units per Mb; ratio is periCEN/CEN</text>",
+    ]
+
+    for tick_idx in range(5):
+        value = top * tick_idx / 4
+        x = margin_left + (value / top) * plot_width
+        svg.append(
+            f'<line class="grid" x1="{x:.1f}" y1="{margin_top - 16}" '
+            f'x2="{x:.1f}" y2="{height - margin_bottom + 12}"/>'
+        )
+        svg.append(
+            f'<text class="tick" x="{x:.1f}" y="{height - margin_bottom + 32}" '
+            f'text-anchor="middle">{value:.1f}</text>'
+        )
+    svg.append(
+        f'<line class="axis" x1="{margin_left}" y1="{height - margin_bottom + 12}" '
+        f'x2="{margin_left + plot_width}" y2="{height - margin_bottom + 12}"/>'
+    )
+
+    for idx, row in enumerate(rows):
+        y = margin_top + idx * row_height
+        cen_value = float(row["cen_cenhap_strength_units_per_mb"])
+        pericen_value = float(row["pericen_cenhap_strength_units_per_mb"])
+        ratio = float(row["pericen_to_cen_units_per_mb_ratio"])
+        chrom = str(row["chr"])
+        svg.append(
+            f'<text class="label" x="{margin_left - 16}" y="{y + 22}" '
+            f'text-anchor="end">{html.escape(chrom)}</text>'
+        )
+        for sub_idx, (name, value, color) in enumerate(
+            [("CEN", cen_value, cen_color), ("PERICEN", pericen_value, pericen_color)]
+        ):
+            bar_y = y + 2 + sub_idx * 21
+            bar_w = (value / top) * plot_width if top else 0.0
+            svg.append(
+                f'<text class="tick" x="{margin_left - 10}" y="{bar_y + 12}" '
+                f'text-anchor="end">{name}</text>'
+            )
+            svg.append(
+                f'<rect x="{margin_left}" y="{bar_y}" width="{bar_w:.1f}" height="15" '
+                f'fill="{color}" opacity="0.86">'
+                f'<title>{html.escape(str(row["cen_region"] if name == "CEN" else row["pericen_region"]))}: '
+                f'{value:.3f} units per Mb</title></rect>'
+            )
+            if value:
+                svg.append(
+                    f'<text class="tick" x="{margin_left + bar_w + 5:.1f}" y="{bar_y + 12}" '
+                    f'text-anchor="start">{value:.1f}</text>'
+                )
+        svg.append(
+            f'<text class="label" x="{margin_left + plot_width + 22}" y="{y + 29}" '
+            f'text-anchor="start">{format_ratio(ratio)}</text>'
+        )
+
+    svg.append("</svg>")
+    path.write_text("\n".join(svg) + "\n")
+    return ""
+
+
+def write_cen_pericen_scatter_plot(path: Path, rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return ""
+    width = 760
+    height = 700
+    margin_left = 86
+    margin_right = 38
+    margin_top = 74
+    margin_bottom = 76
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+    max_value = max(
+        max(
+            float(row["cen_cenhap_strength_units_per_mb"]),
+            float(row["pericen_cenhap_strength_units_per_mb"]),
+        )
+        for row in rows
+    )
+    top = max_value * 1.08 if max_value else 1.0
+
+    svg = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">',
+        "<style>",
+        "text{font-family:Arial,Helvetica,sans-serif;fill:#1f1f1f}",
+        ".title{font-size:22px;font-weight:700}",
+        ".tick{font-size:11px;fill:#555}",
+        ".label{font-size:12px;font-weight:700}",
+        ".axis{stroke:#333;stroke-width:1}",
+        ".grid{stroke:#dddddd;stroke-width:1}",
+        "</style>",
+        '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
+        '<text class="title" x="380" y="34" text-anchor="middle">'
+        "CEN vs periCEN Strength Scatter</text>",
+        '<text class="tick" x="380" y="56" text-anchor="middle">'
+        "Points above the diagonal have stronger periCEN signal</text>",
+    ]
+    baseline = margin_top + plot_height
+    for tick_idx in range(5):
+        value = top * tick_idx / 4
+        x = margin_left + (value / top) * plot_width
+        y = baseline - (value / top) * plot_height
+        svg.append(
+            f'<line class="grid" x1="{x:.1f}" y1="{margin_top}" '
+            f'x2="{x:.1f}" y2="{baseline}"/>'
+        )
+        svg.append(
+            f'<line class="grid" x1="{margin_left}" y1="{y:.1f}" '
+            f'x2="{margin_left + plot_width}" y2="{y:.1f}"/>'
+        )
+        svg.append(
+            f'<text class="tick" x="{x:.1f}" y="{baseline + 20}" '
+            f'text-anchor="middle">{value:.1f}</text>'
+        )
+        svg.append(
+            f'<text class="tick" x="{margin_left - 8}" y="{y + 4:.1f}" '
+            f'text-anchor="end">{value:.1f}</text>'
+        )
+    svg.append(
+        f'<line class="axis" x1="{margin_left}" y1="{baseline}" '
+        f'x2="{margin_left + plot_width}" y2="{baseline}"/>'
+    )
+    svg.append(
+        f'<line class="axis" x1="{margin_left}" y1="{margin_top}" '
+        f'x2="{margin_left}" y2="{baseline}"/>'
+    )
+    svg.append(
+        f'<line x1="{margin_left}" y1="{baseline}" '
+        f'x2="{margin_left + plot_width}" y2="{margin_top}" '
+        'stroke="#777" stroke-width="1.5" stroke-dasharray="5 5"/>'
+    )
+    for row in rows:
+        cen_value = float(row["cen_cenhap_strength_units_per_mb"])
+        pericen_value = float(row["pericen_cenhap_strength_units_per_mb"])
+        x = margin_left + (cen_value / top) * plot_width
+        y = baseline - (pericen_value / top) * plot_height
+        suffix = label_suffix(str(row["cen_region"]))
+        svg.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5.5" fill="#5f6f95" opacity="0.88">'
+            f'<title>{html.escape(str(row["chr"]))}: CEN {cen_value:.3f}, '
+            f'PERICEN {pericen_value:.3f} units per Mb</title></circle>'
+        )
+        svg.append(
+            f'<text class="label" x="{x + 8:.1f}" y="{y - 8:.1f}" '
+            f'text-anchor="start">{html.escape(suffix)}</text>'
+        )
+    svg.append(
+        f'<text class="tick" x="{margin_left + plot_width / 2:.1f}" y="{height - 24}" '
+        'text-anchor="middle">CEN units per Mb</text>'
+    )
+    svg.append(
+        f'<text class="tick" x="22" y="{margin_top + plot_height / 2:.1f}" '
+        'text-anchor="middle" transform="rotate(-90 22 '
+        f'{margin_top + plot_height / 2:.1f})">periCEN units per Mb</text>'
+    )
     svg.append("</svg>")
     path.write_text("\n".join(svg) + "\n")
     return ""
@@ -1619,6 +2308,8 @@ def build_window_rows(
             rows.append(
                 {
                     "assigned_cen": label,
+                    "region_class": label_region_class(label),
+                    "region_part": interval.region_name,
                     "chr": interval.chrom,
                     "window_start": start,
                     "window_end": end,
@@ -1648,34 +2339,42 @@ def build_bin_rows(
     if bin_size <= 0:
         raise SystemExit("--bin-size must be a positive integer.")
 
-    interval_by_label = {interval.label: interval for interval in intervals}
-    bins_by_label = {interval.label: make_bins(interval, bin_size) for interval in intervals}
+    interval_groups = intervals_by_label(intervals)
+    bins_by_label: dict[str, list[tuple[int, CoreInterval, int, int]]] = defaultdict(list)
+    for label in unique_labels(intervals):
+        bin_index = 1
+        for interval in interval_groups.get(label, []):
+            for bin_start, bin_end in make_bins(interval, bin_size):
+                bins_by_label[label].append((bin_index, interval, bin_start, bin_end))
+                bin_index += 1
     kmers_by_bin: dict[tuple[str, int], set[str]] = defaultdict(set)
     hits_by_bin: Counter = Counter()
 
     for kmer, call in selected.items():
-        interval = interval_by_label[call.assigned_cen]
         bins = bins_by_label[call.assigned_cen]
         for pos in stats[kmer].target_positions.get(call.assigned_cen, []):
-            hit_start = max(pos, interval.start)
-            hit_end = min(pos + kmer_size - 1, interval.end)
-            for bin_index, (bin_start, bin_end) in enumerate(bins):
+            for bin_index, interval, bin_start, bin_end in bins:
+                hit_start = max(pos, interval.start)
+                hit_end = min(pos + kmer_size - 1, interval.end)
+                if hit_start > hit_end:
+                    continue
                 if overlaps(hit_start, hit_end, bin_start, bin_end):
                     kmers_by_bin[(call.assigned_cen, bin_index)].add(kmer)
                     hits_by_bin[(call.assigned_cen, bin_index)] += 1
 
     rows = []
-    for interval in intervals:
-        label = interval.label
-        for bin_index, (start, end) in enumerate(bins_by_label[label]):
+    for label in unique_labels(intervals):
+        for bin_index, interval, start, end in bins_by_label[label]:
             length = end - start + 1
             selected_count = len(kmers_by_bin.get((label, bin_index), set()))
             target_hits = hits_by_bin.get((label, bin_index), 0)
             rows.append(
                 {
                     "assigned_cen": label,
+                    "region_class": label_region_class(label),
+                    "region_part": interval.region_name,
                     "chr": interval.chrom,
-                    "bin_index": bin_index + 1,
+                    "bin_index": bin_index,
                     "bin_start": start,
                     "bin_end": end,
                     "bin_midpoint": (start + end) // 2,
@@ -1731,23 +2430,26 @@ def build_dispersion_rows(
 ) -> list[dict[str, object]]:
     rows_by_cen: dict[str, list[dict[str, object]]] = defaultdict(list)
     for row in window_rows:
-        rows_by_cen[str(row["assigned_cen"])].append(row)
+            rows_by_cen[str(row["assigned_cen"])].append(row)
 
     dispersion = []
-    for interval in intervals:
-        rows = rows_by_cen.get(interval.label, [])
+    interval_groups = intervals_by_label(intervals)
+    for label in unique_labels(intervals):
+        rows = rows_by_cen.get(label, [])
         unit_values = [int(row["cenhap_strength_units"]) for row in rows]
         block_values = [int(row["cenhap_strength_blocks"]) for row in rows]
         windows = len(rows)
         unit_total = sum(unit_values)
         block_total = sum(block_values)
+        start, end = label_extent(label, interval_groups)
         dispersion.append(
             {
-                "assigned_cen": interval.label,
-                "chr": interval.chrom,
-                "core_start": interval.start,
-                "core_end": interval.end,
-                "core_length_bp": interval.end - interval.start + 1,
+                "assigned_cen": label,
+                "region_class": label_region_class(label),
+                "chr": label_chrom(label, interval_groups),
+                "core_start": start,
+                "core_end": end,
+                "core_length_bp": label_length(label, interval_groups),
                 "window_size": window_size,
                 "window_step": window_step,
                 "windows": windows,
@@ -1777,6 +2479,8 @@ def build_dispersion_rows(
 def write_window_rows(path: Path, window_rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "assigned_cen",
+        "region_class",
+        "region_part",
         "chr",
         "window_start",
         "window_end",
@@ -1810,6 +2514,8 @@ def write_window_rows(path: Path, window_rows: list[dict[str, object]]) -> None:
 def write_bin_rows(path: Path, bin_rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "assigned_cen",
+        "region_class",
+        "region_part",
         "chr",
         "bin_index",
         "bin_start",
@@ -1838,6 +2544,7 @@ def write_bin_rows(path: Path, bin_rows: list[dict[str, object]]) -> None:
 def write_dispersion_rows(path: Path, dispersion_rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "assigned_cen",
+        "region_class",
         "chr",
         "core_start",
         "core_end",
@@ -1890,11 +2597,13 @@ def write_window_plot(
 
     width = 1320
     row_height = 110
+    labels = unique_labels(intervals)
+    interval_groups = intervals_by_label(intervals)
     margin_left = 88
     margin_right = 32
     margin_top = 70
     plot_width = width - margin_left - margin_right
-    height = margin_top + row_height * len(intervals) + 52
+    height = margin_top + row_height * len(labels) + 52
     max_units = max((int(row["cenhap_strength_units"]) for row in window_rows), default=1)
     max_blocks = max((int(row["cenhap_strength_blocks"]) for row in window_rows), default=1)
 
@@ -1911,24 +2620,26 @@ def write_window_plot(
         "</style>",
         '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
         '<text class="title" x="660" y="34" text-anchor="middle">'
-        "Local Cenhap Strength Across Core Centromeres</text>",
+        "Local Cenhap Strength Across Analysis Regions</text>",
         '<text class="tick" x="660" y="56" text-anchor="middle">'
         "Blue bars: non-redundant units per window; amber line: physical blocks per window</text>",
     ]
 
-    for idx, interval in enumerate(intervals):
+    for idx, label in enumerate(labels):
         row_y = margin_top + idx * row_height
         baseline = row_y + 70
         top_y = row_y + 8
-        rows = rows_by_cen.get(interval.label, [])
-        core_len = interval.end - interval.start + 1
+        rows = rows_by_cen.get(label, [])
+        region_start, region_end = label_extent(label, interval_groups)
+        region_span = int(region_end) - int(region_start) + 1
+        region_len = label_length(label, interval_groups)
         svg.append(
             f'<text class="label" x="{margin_left - 16}" y="{baseline - 28}" '
-            f'text-anchor="end">{html.escape(interval.label)}</text>'
+            f'text-anchor="end">{html.escape(label)}</text>'
         )
         svg.append(
             f'<text class="tick" x="{margin_left - 16}" y="{baseline - 10}" '
-            f'text-anchor="end">{core_len / 1_000_000:.2f} Mb</text>'
+            f'text-anchor="end">{region_len / 1_000_000:.2f} Mb</text>'
         )
         svg.append(
             f'<line class="axis" x1="{margin_left}" y1="{baseline}" '
@@ -1945,15 +2656,15 @@ def write_window_plot(
             midpoint = int(row["window_midpoint"])
             units = int(row["cenhap_strength_units"])
             blocks = int(row["cenhap_strength_blocks"])
-            x = margin_left + ((start - interval.start) / core_len) * plot_width
-            x_end = margin_left + ((end - interval.start + 1) / core_len) * plot_width
+            x = margin_left + ((start - int(region_start)) / region_span) * plot_width
+            x_end = margin_left + ((end - int(region_start) + 1) / region_span) * plot_width
             bar_w = max(1.0, x_end - x)
             bar_h = (units / max_units) * 58 if max_units else 0
             svg.append(
                 f'<rect x="{x:.1f}" y="{baseline - bar_h:.1f}" width="{bar_w:.1f}" '
                 f'height="{bar_h:.1f}" fill="#2f6f73" opacity="0.72"/>'
             )
-            point_x = margin_left + ((midpoint - interval.start) / core_len) * plot_width
+            point_x = margin_left + ((midpoint - int(region_start)) / region_span) * plot_width
             point_y = baseline - ((blocks / max_blocks) * 58 if max_blocks else 0)
             points.append(f"{point_x:.1f},{point_y:.1f}")
         if points:
@@ -1963,11 +2674,11 @@ def write_window_plot(
             )
         svg.append(
             f'<text class="tick" x="{margin_left}" y="{baseline + 18}" text-anchor="start">'
-            f'{interval.start:,}</text>'
+            f'{int(region_start):,}</text>'
         )
         svg.append(
             f'<text class="tick" x="{margin_left + plot_width}" y="{baseline + 18}" '
-            f'text-anchor="end">{interval.end:,}</text>'
+            f'text-anchor="end">{int(region_end):,}</text>'
         )
 
     svg.append("</svg>")
@@ -1987,11 +2698,13 @@ def write_bin_plot(
 
     width = 1320
     row_height = 108
+    labels = unique_labels(intervals)
+    interval_groups = intervals_by_label(intervals)
     margin_left = 88
     margin_right = 36
     margin_top = 72
     plot_width = width - margin_left - margin_right
-    height = margin_top + row_height * len(intervals) + 54
+    height = margin_top + row_height * len(labels) + 54
     max_count = max((int(row["selected_distinct_kmers"]) for row in bin_rows), default=1)
 
     svg = [
@@ -2007,24 +2720,26 @@ def write_bin_plot(
         "</style>",
         '<rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>',
         '<text class="title" x="660" y="34" text-anchor="middle">'
-        "Cenhap-Defining K-mers by Fixed Core-CEN Bin</text>",
+        "Cenhap-Defining K-mers by Fixed Region Bin</text>",
         f'<text class="tick" x="660" y="56" text-anchor="middle">'
         f"Bar height is distinct selected k-mers per {bin_size:,} bp bin</text>",
     ]
 
-    for idx, interval in enumerate(intervals):
+    for idx, label in enumerate(labels):
         row_y = margin_top + idx * row_height
         baseline = row_y + 68
         top_y = row_y + 8
-        rows = rows_by_cen.get(interval.label, [])
-        core_len = interval.end - interval.start + 1
+        rows = rows_by_cen.get(label, [])
+        region_start, region_end = label_extent(label, interval_groups)
+        region_span = int(region_end) - int(region_start) + 1
+        region_len = label_length(label, interval_groups)
         svg.append(
             f'<text class="label" x="{margin_left - 16}" y="{baseline - 30}" '
-            f'text-anchor="end">{html.escape(interval.label)}</text>'
+            f'text-anchor="end">{html.escape(label)}</text>'
         )
         svg.append(
             f'<text class="tick" x="{margin_left - 16}" y="{baseline - 12}" '
-            f'text-anchor="end">{core_len / 1_000_000:.2f} Mb</text>'
+            f'text-anchor="end">{region_len / 1_000_000:.2f} Mb</text>'
         )
         svg.append(
             f'<line class="axis" x1="{margin_left}" y1="{baseline}" '
@@ -2038,8 +2753,8 @@ def write_bin_plot(
             start = int(row["bin_start"])
             end = int(row["bin_end"])
             count = int(row["selected_distinct_kmers"])
-            x = margin_left + ((start - interval.start) / core_len) * plot_width
-            x_end = margin_left + ((end - interval.start + 1) / core_len) * plot_width
+            x = margin_left + ((start - int(region_start)) / region_span) * plot_width
+            x_end = margin_left + ((end - int(region_start) + 1) / region_span) * plot_width
             bar_w = max(1.0, x_end - x - 1.0)
             bar_h = (count / max_count) * 58 if max_count else 0
             svg.append(
@@ -2056,11 +2771,11 @@ def write_bin_plot(
                 )
         svg.append(
             f'<text class="tick" x="{margin_left}" y="{baseline + 18}" text-anchor="start">'
-            f'{interval.start:,}</text>'
+            f'{int(region_start):,}</text>'
         )
         svg.append(
             f'<text class="tick" x="{margin_left + plot_width}" y="{baseline + 18}" '
-            f'text-anchor="end">{interval.end:,}</text>'
+            f'text-anchor="end">{int(region_end):,}</text>'
         )
 
     svg.append("</svg>")
@@ -2078,7 +2793,7 @@ def write_assigned_core_map(
     map_tsv: str,
     path: Path,
     selected: dict[str, SelectedKmer],
-    interval_by_label: dict[str, CoreInterval],
+    interval_groups: dict[str, list[CoreInterval]],
 ) -> int:
     rows_written = 0
     with open(map_tsv, newline="") as f, open(path, "w", newline="") as out:
@@ -2091,11 +2806,12 @@ def write_assigned_core_map(
             call = selected.get(kmer)
             if call is None:
                 continue
-            interval = interval_by_label[call.assigned_cen]
-            if normalize_chrom(row["chr"]) != interval.chrom:
-                continue
             pos = clean_int(row["pos"])
-            if interval.start <= pos <= interval.end:
+            chrom = normalize_chrom(row["chr"])
+            if any(
+                interval.chrom == chrom and interval.start <= pos <= interval.end
+                for interval in interval_groups.get(call.assigned_cen, [])
+            ):
                 writer.writerow(row)
                 rows_written += 1
     return rows_written
@@ -2123,6 +2839,7 @@ def write_stats(
         if getattr(args, "generated_map_stats_tsv", ""):
             out.write(f"generated_map_stats_tsv\t{args.generated_map_stats_tsv}\n")
         out.write(f"coords\t{args.coords}\n")
+        out.write(f"include_pericen\t{int(args.include_pericen)}\n")
         out.write(f"fasta\t{args.fasta or ''}\n")
         out.write(f"kmer_size\t{args.kmer_size}\n")
         out.write(f"kmer_step\t{args.kmer_step}\n")
@@ -2142,6 +2859,8 @@ def write_stats(
         out.write(f"min_shared_hits_per_cen\t{args.min_shared_hits_per_cen}\n")
         out.write(f"map_rows\t{map_rows}\n")
         out.write(f"core_centromere_map_rows\t{core_rows}\n")
+        out.write(f"analysis_regions\t{len(unique_labels(intervals))}\n")
+        out.write(f"analysis_intervals\t{len(intervals)}\n")
         out.write(f"distinct_kmers\t{kmer_count}\n")
         out.write(f"selected_kmers\t{len(selected)}\n")
         out.write(
@@ -2155,7 +2874,9 @@ def write_stats(
             out.write(f"{plot_status}\n")
         for interval in intervals:
             out.write(
-                f"core_interval\t{interval.label}\t{interval.chrom}\t{interval.start}\t{interval.end}\n"
+                "core_interval\t"
+                f"{interval.label}\t{interval.region_class}\t{interval.region_name}\t"
+                f"{interval.chrom}\t{interval.start}\t{interval.end}\n"
             )
             if fasta_lengths.get(interval.chrom):
                 out.write(f"fasta_length\t{interval.chrom}\t{fasta_lengths[interval.chrom]}\n")
@@ -2170,9 +2891,9 @@ def main() -> None:
     prefix = Path(args.prefix)
     prefix.parent.mkdir(parents=True, exist_ok=True)
 
-    intervals = read_core_intervals(args.coords)
-    labels = [interval.label for interval in intervals]
-    interval_by_label = {interval.label: interval for interval in intervals}
+    intervals = read_core_intervals(args.coords, args.include_pericen)
+    labels = unique_labels(intervals)
+    interval_groups = intervals_by_label(intervals)
     interval_index = build_interval_index(intervals)
 
     if args.map_tsv:
@@ -2210,7 +2931,7 @@ def main() -> None:
     blocks_by_cen = build_blocks(
         stats,
         selected,
-        interval_by_label,
+        interval_groups,
         args.kmer_size,
         args.merge_gap,
     )
@@ -2253,7 +2974,12 @@ def main() -> None:
     relatedness_pairs_path = Path(str(prefix) + ".cen_relatedness.idf_weighted_pairs.tsv")
     relatedness_matrix_path = Path(str(prefix) + ".cen_relatedness.idf_weighted_matrix.tsv")
     strength_path = Path(str(prefix) + ".cenhap_strength.tsv")
+    region_strength_path = Path(str(prefix) + ".region_strength.tsv")
+    paired_strength_path = Path(str(prefix) + ".paired_cen_pericen_strength.tsv")
+    independence_path = Path(str(prefix) + ".cen_pericen_independence.tsv")
     plot_path = Path(str(prefix) + ".cenhap_strength_histogram.svg")
+    paired_plot_path = Path(str(prefix) + ".paired_cen_pericen_strength.svg")
+    scatter_plot_path = Path(str(prefix) + ".cen_pericen_strength_scatter.svg")
     bin_path = Path(str(prefix) + ".cenhap_bins.tsv")
     bin_plot_path = Path(str(prefix) + ".cenhap_bin_counts.svg")
     window_path = Path(str(prefix) + ".cenhap_windows.tsv")
@@ -2262,6 +2988,9 @@ def main() -> None:
     assigned_map_path = Path(str(prefix) + ".assigned_core_map.tsv")
     stats_path = Path(str(prefix) + ".stats.txt")
     strength_rows = collect_strength_rows(labels, selected, blocks_by_cen, units_by_cen)
+    region_strength_rows = build_region_strength_rows(strength_rows, interval_groups)
+    paired_strength_rows = build_paired_cen_pericen_rows(region_strength_rows)
+    independence_rows = build_cen_pericen_independence_rows(labels, relatedness_pair_rows)
 
     write_selected_kmers(selected_path, selected)
     write_summary(summary_path, stats, selected, labels, args)
@@ -2275,6 +3004,9 @@ def main() -> None:
     write_relatedness_pairs(relatedness_pairs_path, relatedness_pair_rows)
     write_relatedness_matrix(relatedness_matrix_path, relatedness_matrix)
     write_cen_strength(strength_path, labels, selected, blocks_by_cen, units_by_cen)
+    write_region_strength(region_strength_path, region_strength_rows)
+    write_paired_cen_pericen_strength(paired_strength_path, paired_strength_rows)
+    write_cen_pericen_independence(independence_path, independence_rows)
     plot_status = "plot_skipped\t--skip-plot" if args.skip_plot else write_strength_plot(
         plot_path, strength_rows
     )
@@ -2291,6 +3023,14 @@ def main() -> None:
         args.bin_size,
     )
     plot_status = plot_status or bin_plot_status
+    paired_plot_status = "" if args.skip_plot or not paired_strength_rows else write_paired_strength_plot(
+        paired_plot_path, paired_strength_rows
+    )
+    plot_status = plot_status or paired_plot_status
+    scatter_plot_status = "" if args.skip_plot or not paired_strength_rows else write_cen_pericen_scatter_plot(
+        scatter_plot_path, paired_strength_rows
+    )
+    plot_status = plot_status or scatter_plot_status
     write_window_rows(window_path, window_rows)
     write_dispersion_rows(dispersion_path, dispersion_rows)
     window_plot_status = "" if args.skip_plot or not args.write_window_plot else write_window_plot(
@@ -2301,7 +3041,7 @@ def main() -> None:
         args.map_tsv,
         assigned_map_path,
         selected,
-        interval_by_label,
+        interval_groups,
     )
     write_stats(
         stats_path,
@@ -2332,10 +3072,16 @@ def main() -> None:
     print(f"Wrote {relatedness_pairs_path}")
     print(f"Wrote {relatedness_matrix_path}")
     print(f"Wrote {strength_path}")
+    print(f"Wrote {region_strength_path}")
+    print(f"Wrote {paired_strength_path}")
+    print(f"Wrote {independence_path}")
     if not plot_status:
         print(f"Wrote {plot_path}")
         print(f"Wrote {unit_size_plot_path}")
         print(f"Wrote {bin_plot_path}")
+        if paired_strength_rows:
+            print(f"Wrote {paired_plot_path}")
+            print(f"Wrote {scatter_plot_path}")
         if args.write_window_plot:
             print(f"Wrote {window_plot_path}")
     print(f"Wrote {bin_path}")
