@@ -12,4 +12,4 @@ __pycache__/
 
 # local environments
 .venv/
-env/
+env/*.ipynb
